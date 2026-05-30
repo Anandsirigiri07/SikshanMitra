@@ -138,94 +138,325 @@ export function saveSettings(settings) {
 }
 
 // ─────────────────────────────────────────────
-// 2. Students (IndexedDB)
+// 1b. Sections (localStorage)
 // ─────────────────────────────────────────────
-export function getStudents() {
-  return txGetAll('students').catch(() => []);
+export async function getSections() {
+  try {
+    return JSON.parse(localStorage.getItem('sections') || '[]');
+  } catch (e) {
+    return [];
+  }
+}
+
+export async function saveSection(section) {
+  const sections = await getSections();
+  if (!section.id) {
+    section.id = 'sec_' + generateUUID();
+  }
+  const idx = sections.findIndex(s => s.id === section.id);
+  if (idx !== -1) {
+    sections[idx] = section;
+  } else {
+    sections.push(section);
+  }
+  localStorage.setItem('sections', JSON.stringify(sections));
+  return section;
+}
+
+export async function deleteSection(sectionId) {
+  let sections = await getSections();
+  sections = sections.filter(s => s.id !== sectionId);
+  localStorage.setItem('sections', JSON.stringify(sections));
+
+  // Cascade delete students
+  let students = await getStudents();
+  const studentsInSec = students.filter(s => s.sectionId === sectionId);
+  students = students.filter(s => s.sectionId !== sectionId);
+  localStorage.setItem('students', JSON.stringify(students));
+
+  // Cascade delete attendance
+  let attendance = JSON.parse(localStorage.getItem('attendance') || '[]');
+  attendance = attendance.filter(a => a.sectionId !== sectionId);
+  localStorage.setItem('attendance', JSON.stringify(attendance));
+
+  // Cascade delete grades
+  let grades = JSON.parse(localStorage.getItem('grades') || '[]');
+  grades = grades.filter(g => g.sectionId !== sectionId);
+  localStorage.setItem('grades', JSON.stringify(grades));
+
+  // Delete students' corresponding incidents/messages/reports from IndexedDB
+  for (const student of studentsInSec) {
+    await deleteStudentIndexedDBRefs(student.id);
+  }
+  
+  return true;
+}
+
+async function deleteStudentIndexedDBRefs(studentId) {
+  // Purge incidents
+  try {
+    const incidents = await txGetAll('incidents');
+    const filtered = incidents.filter(i => i.studentId !== studentId);
+    await txClear('incidents');
+    for (const inc of filtered) await txPut('incidents', inc);
+  } catch (e) {
+    console.error('Error clearing student incidents refs:', e);
+  }
+
+  // Purge messages
+  try {
+    const messages = await txGetAll('messages');
+    const filteredMsgs = messages.filter(m => m.studentId !== studentId);
+    await txClear('messages');
+    for (const msg of filteredMsgs) await txPut('messages', msg);
+  } catch (e) {
+    console.error('Error clearing student messages refs:', e);
+  }
+
+  // Purge reports
+  try {
+    const reports = await txGetAll('reports');
+    const filteredRpts = reports.filter(r => r.studentId !== studentId);
+    await txClear('reports');
+    for (const rpt of filteredRpts) await txPut('reports', rpt);
+  } catch (e) {
+    console.error('Error clearing student reports refs:', e);
+  }
+}
+
+// ─────────────────────────────────────────────
+// 2. Students (localStorage)
+// ─────────────────────────────────────────────
+export async function getStudents() {
+  try {
+    return JSON.parse(localStorage.getItem('students') || '[]');
+  } catch (e) {
+    return [];
+  }
 }
 
 export async function saveStudent(studentData) {
   if (!studentData.id) {
-    studentData.id = generateUUID();
+    studentData.id = 'stu_' + generateUUID();
   }
-  await txPut('students', studentData);
+  const students = await getStudents();
+  const idx = students.findIndex(s => s.id === studentData.id);
+  if (idx !== -1) {
+    students[idx] = studentData;
+  } else {
+    students.push(studentData);
+  }
+  localStorage.setItem('students', JSON.stringify(students));
   return studentData;
 }
 
 export async function deleteStudent(studentId) {
-  await txDelete('students', studentId);
-  // Purge grades references
-  const settings = getSettings();
-  for (const sub of settings.subjects) {
-    const key = sub.replace(/\s+/g, '_');
-    const grade = await txGet('grades', key);
-    if (grade && grade.scores && grade.scores[studentId]) {
-      delete grade.scores[studentId];
-      await txPut('grades', grade);
-    }
+  let students = await getStudents();
+  students = students.filter(s => s.id !== studentId);
+  localStorage.setItem('students', JSON.stringify(students));
+
+  // Purge grades references in localStorage
+  try {
+    let gradesList = JSON.parse(localStorage.getItem('grades') || '[]');
+    gradesList.forEach(grade => {
+      if (grade.scores && grade.scores[studentId]) {
+        delete grade.scores[studentId];
+      }
+    });
+    localStorage.setItem('grades', JSON.stringify(gradesList));
+  } catch (e) {
+    console.error('Error purging student grades in localStorage:', e);
   }
-  // Purge incidents
-  const incidents = await txGetAll('incidents');
-  const filtered = incidents.filter(i => i.studentId !== studentId);
-  await txClear('incidents');
-  for (const inc of filtered) await txPut('incidents', inc);
+
+  // Clean IndexedDB incidents, messages, reports
+  await deleteStudentIndexedDBRefs(studentId);
   return true;
 }
 
 // ─────────────────────────────────────────────
-// 3. Attendance (IndexedDB) – FULL HISTORY SUPPORT
+// 3. Attendance (localStorage)
 // ─────────────────────────────────────────────
-/**
- * Get attendance record for a specific date.
- * Returns an object: { [studentId]: 'present' | 'absent' | 'late' }
- */
-export async function getAttendance(dateStr) {
-  const record = await txGet('attendance', dateStr);
-  return record ? record.marks : {};
+export async function getAttendance(dateStr, sectionId) {
+  try {
+    const attendance = JSON.parse(localStorage.getItem('attendance') || '[]');
+    const record = attendance.find(a => a.date === dateStr && a.sectionId === sectionId);
+    return record ? record.records : {};
+  } catch (e) {
+    return {};
+  }
 }
 
-/**
- * Save attendance for a date.
- * @param {string} dateStr   – ISO date string e.g. "2024-05-30"
- * @param {object} marksMap  – { [studentId]: 'present'|'absent'|'late' }
- */
-export async function saveAttendance(dateStr, marksMap) {
-  await txPut('attendance', { date: dateStr, marks: marksMap, savedAt: new Date().toISOString() });
-  return true;
+export async function saveAttendance(dateStr, sectionId, recordsMap) {
+  try {
+    const attendance = JSON.parse(localStorage.getItem('attendance') || '[]');
+    const index = attendance.findIndex(a => a.date === dateStr && a.sectionId === sectionId);
+    const newRecord = {
+      id: index !== -1 ? attendance[index].id : 'att_' + generateUUID(),
+      date: dateStr,
+      sectionId,
+      records: recordsMap,
+      savedAt: new Date().toISOString()
+    };
+    if (index !== -1) {
+      attendance[index] = newRecord;
+    } else {
+      attendance.push(newRecord);
+    }
+    localStorage.setItem('attendance', JSON.stringify(attendance));
+    return true;
+  } catch (e) {
+    throw new Error('Storage quota exceeded saving attendance.');
+  }
 }
 
-/**
- * Get all attendance records sorted newest-first.
- * Returns array of { date, marks, savedAt }
- */
 export async function getAllAttendanceHistory() {
-  const all = await txGetAll('attendance');
-  return all.sort((a, b) => (b.date > a.date ? 1 : -1));
+  try {
+    const attendance = JSON.parse(localStorage.getItem('attendance') || '[]');
+    const formatted = attendance.map(a => ({
+      date: a.date,
+      sectionId: a.sectionId,
+      marks: a.records,
+      savedAt: a.savedAt
+    }));
+    return formatted.sort((a, b) => (b.date > a.date ? 1 : -1));
+  } catch (e) {
+    return [];
+  }
 }
 
-/**
- * Delete a specific day's attendance record
- */
-export async function deleteAttendanceRecord(dateStr) {
-  await txDelete('attendance', dateStr);
-  return true;
+export async function deleteAttendanceRecord(dateStr, sectionId) {
+  try {
+    let attendance = JSON.parse(localStorage.getItem('attendance') || '[]');
+    attendance = attendance.filter(a => !(a.date === dateStr && a.sectionId === sectionId));
+    localStorage.setItem('attendance', JSON.stringify(attendance));
+    return true;
+  } catch (e) {
+    return false;
+  }
 }
 
 // ─────────────────────────────────────────────
-// 4. Grades (IndexedDB)
+// 4. Grades (localStorage)
 // ─────────────────────────────────────────────
-export async function getGradesForSubject(subName) {
-  const key = subName.replace(/\s+/g, '_');
-  const record = await txGet('grades', key);
-  if (!record) return { subject: key, assignments: ['Exam 1', 'Homework 1'], scores: {} };
-  return record;
+export async function getGradesForSubject(subName, sectionId) {
+  try {
+    const gradesList = JSON.parse(localStorage.getItem('grades') || '[]');
+    const record = gradesList.find(g => g.subject === subName && g.sectionId === sectionId);
+    if (!record) {
+      return {
+        id: 'grd_' + generateUUID(),
+        sectionId,
+        subject: subName,
+        assignments: [],
+        scores: {}
+      };
+    }
+    return record;
+  } catch (e) {
+    return {
+      id: 'grd_' + generateUUID(),
+      sectionId,
+      subject: subName,
+      assignments: [],
+      scores: {}
+    };
+  }
 }
 
 export async function saveGradesForSubject(subName, gradeData) {
-  const key = subName.replace(/\s+/g, '_');
-  gradeData.subject = key;
-  await txPut('grades', gradeData);
-  return true;
+  try {
+    const gradesList = JSON.parse(localStorage.getItem('grades') || '[]');
+    const index = gradesList.findIndex(g => g.id === gradeData.id || (g.subject === subName && g.sectionId === gradeData.sectionId));
+    if (index !== -1) {
+      gradesList[index] = gradeData;
+    } else {
+      if (!gradeData.id) gradeData.id = 'grd_' + generateUUID();
+      gradeData.subject = subName;
+      gradesList.push(gradeData);
+    }
+    localStorage.setItem('grades', JSON.stringify(gradesList));
+    return true;
+  } catch (e) {
+    throw new Error('Storage quota exceeded saving grades.');
+  }
+}
+
+// ─────────────────────────────────────────────
+// 4b. IndexedDB to localStorage Migration on Startup
+// ─────────────────────────────────────────────
+export async function migrateIndexedDbToLocalStorage() {
+  const sections = JSON.parse(localStorage.getItem('sections') || '[]');
+  if (sections.length > 0) return; // already migrated or setup
+
+  try {
+    const idbStudents = await txGetAll('students');
+    if (idbStudents.length === 0) return; // empty database
+
+    console.log('Migrating existing IndexedDB database to relational localStorage...');
+
+    const defaultSection = { id: 'sec_default', name: 'General Class' };
+    localStorage.setItem('sections', JSON.stringify([defaultSection]));
+
+    const migratedStudents = idbStudents.map(s => ({
+      id: s.id,
+      sectionId: 'sec_default',
+      name: s.name,
+      roll: s.roll,
+      parentContact: s.parentContact,
+      isIEP: s.isIEP || false,
+      notes: s.notes || ''
+    }));
+    localStorage.setItem('students', JSON.stringify(migratedStudents));
+
+    const idbAttendance = await txGetAll('attendance');
+    const migratedAttendance = idbAttendance.map(a => ({
+      id: 'att_' + generateUUID(),
+      date: a.date,
+      sectionId: 'sec_default',
+      records: a.marks || {},
+      savedAt: a.savedAt || new Date().toISOString()
+    }));
+    localStorage.setItem('attendance', JSON.stringify(migratedAttendance));
+
+    const idbGrades = await txGetAll('grades');
+    const migratedGrades = idbGrades.map(g => {
+      const assignments = (g.assignments || []).map((name, i) => ({
+        id: `a_${i}_` + generateUUID(),
+        name,
+        max: 100
+      }));
+
+      const scores = {};
+      if (g.scores) {
+        Object.entries(g.scores).forEach(([stuId, subjectScores]) => {
+          scores[stuId] = {};
+          if (subjectScores) {
+            Object.entries(subjectScores).forEach(([assignName, val]) => {
+              const matchingAssign = assignments.find(a => a.name === assignName);
+              if (matchingAssign) {
+                scores[stuId][matchingAssign.id] = val;
+              }
+            });
+          }
+        });
+      }
+
+      const subjectName = g.subject ? g.subject.replace(/_/g, ' ') : 'Subject';
+
+      return {
+        id: 'grd_' + generateUUID(),
+        sectionId: 'sec_default',
+        subject: subjectName,
+        assignments,
+        scores
+      };
+    });
+    localStorage.setItem('grades', JSON.stringify(migratedGrades));
+
+    console.log('Migration completed successfully.');
+  } catch (err) {
+    console.error('Error during IndexedDB to localStorage migration:', err);
+  }
 }
 
 // ─────────────────────────────────────────────

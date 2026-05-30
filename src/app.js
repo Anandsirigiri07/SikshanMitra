@@ -13,6 +13,8 @@ const state = {
   isOffline: !navigator.onLine,
   settings: {},
   students: [],
+  sections: [],
+  activeSectionId: '',
   selectedSubject: '',
   selectedStudentId: null,
   activeDate: new Date().toISOString().split('T')[0]
@@ -140,9 +142,29 @@ document.addEventListener('DOMContentLoaded', () => {
 async function initApp() {
   setupMobileDrawer();
 
-  // Sync state data from local storage/indexedDB
+  // Sync IndexedDB migration to localStorage if needed
+  await db.migrateIndexedDbToLocalStorage();
 
+  // Sync state data from local storage/indexedDB
   state.settings = db.getSettings();
+  try {
+    state.sections = await db.getSections();
+    if (state.sections.length > 0) {
+      const storedSec = localStorage.getItem('activeSectionId');
+      if (storedSec && state.sections.some(s => s.id === storedSec)) {
+        state.activeSectionId = storedSec;
+      } else {
+        state.activeSectionId = state.sections[0].id;
+      }
+    } else {
+      state.activeSectionId = '';
+    }
+  } catch (err) {
+    console.error('Error getting sections roster:', err);
+    state.sections = [];
+    state.activeSectionId = '';
+  }
+
   try {
     state.students = await db.getStudents();
   } catch (err) {
@@ -322,6 +344,17 @@ async function renderActiveModule() {
     activeSectionElem.classList.remove('hidden');
   }
 
+  // Inject and render the universal section selector if applicable
+  const sectionScopedModules = ['dashboard', 'students', 'attendance', 'grades', 'messages', 'reports'];
+  if (sectionScopedModules.includes(state.activeModule)) {
+    renderUniversalSectionSelector(state.activeModule);
+    if (state.sections.length === 0) {
+      translatePage();
+      if (window.lucide) window.lucide.createIcons();
+      return;
+    }
+  }
+
   // Refresh data indices based on mounted module screen
   switch (state.activeModule) {
     case 'dashboard':
@@ -408,6 +441,16 @@ function setupEventBindings() {
       document.getElementById('student-entry-form').reset();
       document.getElementById('student-idx').value = '';
       document.getElementById('student-form-title').innerText = 'Register New Student Profile';
+      
+      // Populate section options in form and set activeSectionId
+      const selectFormSection = document.getElementById('student-section-id');
+      if (selectFormSection) {
+        selectFormSection.innerHTML = state.sections.map(sec => 
+          `<option value="${sec.id}">${sec.name}</option>`
+        ).join('');
+        selectFormSection.value = state.activeSectionId;
+      }
+      
       studentFormPanel.classList.remove('hidden');
       studentFormPanel.scrollIntoView({ behavior: 'smooth' });
     });
@@ -430,10 +473,11 @@ function setupEventBindings() {
         const name = document.getElementById('student-name').value;
         const roll = document.getElementById('student-roll').value;
         const parentContact = document.getElementById('student-parent').value;
+        const sectionId = document.getElementById('student-section-id').value;
         const isIEP = document.getElementById('student-iep').checked;
         const notes = document.getElementById('student-notes').value;
 
-        await db.saveStudent({ id, name, roll, parentContact, isIEP, notes });
+        await db.saveStudent({ id, name, roll, parentContact, sectionId, isIEP, notes });
         state.students = await db.getStudents(); // re-sync roster
         
         studentFormPanel.classList.add('hidden');
@@ -523,12 +567,13 @@ function setupEventBindings() {
       if (!assignName || assignName.trim() === '') return;
 
       try {
-        const gradesSchema = await db.getGradesForSubject(state.selectedSubject);
-        if (gradesSchema.assignments.includes(assignName)) {
+        const gradesSchema = await db.getGradesForSubject(state.selectedSubject, state.activeSectionId);
+        if (gradesSchema.assignments.some(a => a.name.toLowerCase() === assignName.trim().toLowerCase())) {
           showToast('An assignment with that exact name already exists in this ledger.', 'error');
           return;
         }
-        gradesSchema.assignments.push(assignName.trim());
+        const newAssignId = 'assign_' + Date.now().toString(36) + Math.random().toString(36).substr(2, 5);
+        gradesSchema.assignments.push({ id: newAssignId, name: assignName.trim(), max: 100 });
         await db.saveGradesForSubject(state.selectedSubject, gradesSchema);
         await renderGrades();
         showToast(`Coursework column "${assignName}" added to ${state.selectedSubject}.`, 'success');
@@ -936,6 +981,43 @@ function setupEventBindings() {
     });
   }
 
+  // Settings Add section trigger
+  const btnAddSection = document.getElementById('btn-add-section');
+  if (btnAddSection) {
+    btnAddSection.addEventListener('click', async (e) => {
+      e.preventDefault();
+      const input = document.getElementById('settings-section-input');
+      if (!input) return;
+      const val = input.value.trim();
+      if (!val) return;
+
+      if (state.sections.some(s => s.name.toLowerCase() === val.toLowerCase())) {
+        showToast('This section name is already in your database.', 'error');
+        return;
+      }
+
+      try {
+        const newSec = await db.saveSection({ name: val });
+        state.sections = await db.getSections();
+        
+        // If this is the first section, make it active
+        if (!state.activeSectionId) {
+          state.activeSectionId = newSec.id;
+          localStorage.setItem('activeSectionId', state.activeSectionId);
+        }
+
+        input.value = '';
+        renderSettingsSections();
+        showToast(`Section "${val}" created successfully.`, 'success');
+        
+        // Refresh active module to clear any warning or update dropdown
+        await renderActiveModule();
+      } catch (err) {
+        showToast(err.message, 'error');
+      }
+    });
+  }
+
   // Purge Confirmation Modals
   const btnWipeDatabase = document.getElementById('btn-wipe-database');
   const purgeConfirmModal = document.getElementById('purge-confirm-modal');
@@ -1018,11 +1100,106 @@ function copyTextToClipboard(text, successMsg) {
   }
 }
 
+// Relational scoping helper functions
+export function getStudentsBySection(sectionId) {
+  return state.students.filter(s => s.sectionId === sectionId);
+}
+
+export async function getGradesBySectionAndSubject(sectionId, subject) {
+  return await db.getGradesForSubject(subject, sectionId);
+}
+
+// Universal Section Selector dropdown injector and state validation
+function renderUniversalSectionSelector(moduleName) {
+  const container = document.querySelector(`#module-${moduleName} .universal-section-selector-container`);
+  const contentWrapper = document.querySelector(`#module-${moduleName} .module-content-wrapper`);
+  
+  if (!container) return;
+
+  // Clear previous selectors or warnings
+  container.innerHTML = '';
+
+  if (state.sections.length === 0) {
+    // Hide content layout
+    if (contentWrapper) contentWrapper.classList.add('hidden');
+
+    // Show empty warning overlay card
+    const warning = document.createElement('div');
+    warning.className = 'panel';
+    warning.style.textAlign = 'center';
+    warning.style.padding = '48px';
+    warning.style.margin = '20px 0';
+    warning.style.border = '1px dashed var(--warning-color)';
+    warning.innerHTML = `
+      <i data-lucide="alert-triangle" style="width: 48px; height: 48px; margin: 0 auto 16px auto; color: var(--warning-color);"></i>
+      <h2 style="font-size: 1.5rem; margin-bottom: 8px;">No Sections Found</h2>
+      <p style="color: var(--text-secondary); max-width: 450px; margin: 0 auto 20px auto;">
+        Please create a Section in Settings first.
+      </p>
+      <button class="btn btn-primary" onclick="document.getElementById('nav-settings').click()">
+        Go to Settings
+      </button>
+    `;
+    container.appendChild(warning);
+
+    if (window.lucide) window.lucide.createIcons();
+    return;
+  }
+
+  // Show content layout
+  if (contentWrapper) contentWrapper.classList.remove('hidden');
+
+  // Render select dropdown
+  const selectorDiv = document.createElement('div');
+  selectorDiv.style.display = 'flex';
+  selectorDiv.style.alignItems = 'center';
+  selectorDiv.style.gap = '12px';
+  selectorDiv.style.padding = '12px 18px';
+  selectorDiv.style.background = 'var(--surface-bg)';
+  selectorDiv.style.border = '1px solid var(--border-color)';
+  selectorDiv.style.borderRadius = 'var(--border-radius-md)';
+  selectorDiv.style.marginBottom = '24px';
+  selectorDiv.style.flexWrap = 'wrap';
+
+  const selectOptions = state.sections.map(sec => 
+    `<option value="${sec.id}" ${sec.id === state.activeSectionId ? 'selected' : ''}>${sec.name}</option>`
+  ).join('');
+
+  selectorDiv.innerHTML = `
+    <div style="display:flex; align-items:center; gap:8px;">
+      <i data-lucide="layers" style="color: var(--accent-color); width: 18px; height: 18px;"></i>
+      <span style="font-weight: 600; font-size: 0.95rem;">Select Section:</span>
+    </div>
+    <select class="section-select-dropdown" style="max-width: 250px; padding: 6px 12px; background: rgba(15, 27, 45, 0.6); border: 1px solid var(--border-color); border-radius: var(--border-radius-sm); color: var(--text-primary); cursor: pointer; height: auto; width: auto;">
+      ${selectOptions}
+    </select>
+  `;
+
+  container.appendChild(selectorDiv);
+
+  // Bind change event listener
+  const dropdown = selectorDiv.querySelector('.section-select-dropdown');
+  dropdown.addEventListener('change', async (e) => {
+    state.activeSectionId = e.target.value;
+    localStorage.setItem('activeSectionId', state.activeSectionId);
+    
+    // Sync all dropdown selections on other visible selector elements
+    document.querySelectorAll('.section-select-dropdown').forEach(sel => {
+      sel.value = state.activeSectionId;
+    });
+
+    // Re-render the active module below
+    await renderActiveModule();
+  });
+
+  if (window.lucide) window.lucide.createIcons();
+}
+
 // ----------------------------------------------------
 // UI RENDERING ROUTINES FOR EACH MODULE
 // ----------------------------------------------------
 
-// Render Core dashboard figures
+/// Render Core dashboard figures
 async function renderDashboard() {
   const dashGreeting = document.getElementById('dash-greeting');
   if (dashGreeting && state.settings.name) {
@@ -1038,26 +1215,28 @@ async function renderDashboard() {
     dateSpan.innerText = new Date().toLocaleDateString('en-US', opts);
   }
 
+  const sectionStudents = getStudentsBySection(state.activeSectionId);
+
   // Set card quantities
   const totalStudBadge = document.getElementById('dash-total-students');
-  if (totalStudBadge) totalStudBadge.innerText = state.students.length;
+  if (totalStudBadge) totalStudBadge.innerText = sectionStudents.length;
 
   const schoolTagValue = document.getElementById('dash-school-badge');
   if (schoolTagValue) schoolTagValue.innerText = state.settings.school || 'Academic Workspace Local';
 
   // Count absent today
-  const attendanceTodayMap = await db.getAttendance(state.activeDate);
+  const attendanceTodayMap = await db.getAttendance(state.activeDate, state.activeSectionId);
   let absentCount = 0;
-  state.students.forEach(s => {
+  sectionStudents.forEach(s => {
     if (attendanceTodayMap[s.id] === 'absent') absentCount++;
   });
   const absentBadgeValue = document.getElementById('dash-absent-today');
   if (absentBadgeValue) absentBadgeValue.innerText = absentCount;
 
-  // Gradebooks columns quantity
+  // Gradebooks columns quantity for this section
   let listedAssignmentsCount = 0;
   for (const sub of state.settings.subjects) {
-    const gradeData = await db.getGradesForSubject(sub);
+    const gradeData = await db.getGradesForSubject(sub, state.activeSectionId);
     listedAssignmentsCount += gradeData.assignments.length;
   }
   const gradesCountBadge = document.getElementById('dash-pending-grades');
@@ -1073,12 +1252,12 @@ async function renderDashboard() {
   // Today class profile analytical textual description
   const classSummaryText = document.getElementById('dash-class-summary-text');
   if (classSummaryText) {
-    if (state.students.length === 0) {
-      classSummaryText.innerHTML = `<div>No registered students found. Head to the <strong style="color:var(--accent-color); cursor:pointer;" onclick="document.getElementById('nav-students').click()">Students tracker module</strong> to set up your roster!</div>`;
+    if (sectionStudents.length === 0) {
+      classSummaryText.innerHTML = `<div>No registered students found in this section. Head to the <strong style="color:var(--accent-color); cursor:pointer;" onclick="document.getElementById('nav-students').click()">Students tracker module</strong> to set up your roster!</div>`;
     } else {
-      let iepCount = state.students.filter(s => s.isIEP).length;
-      let presentCount = state.students.length - absentCount;
-      let calculatedRate = state.students.length > 0 ? Math.round((presentCount / state.students.length) * 100) : 100;
+      let iepCount = sectionStudents.filter(s => s.isIEP).length;
+      let presentCount = sectionStudents.length - absentCount;
+      let calculatedRate = sectionStudents.length > 0 ? Math.round((presentCount / sectionStudents.length) * 100) : 100;
       
       classSummaryText.innerHTML = `
         <div style="display:flex; flex-direction:column; gap:8px;">
@@ -1097,11 +1276,13 @@ function renderStudents() {
   if (!container) return;
 
   container.innerHTML = '';
-  if (state.students.length === 0) {
+  const sectionStudents = getStudentsBySection(state.activeSectionId);
+
+  if (sectionStudents.length === 0) {
     container.innerHTML = `
       <div class="panel" style="grid-column: 1 / -1; text-align: center; color: var(--text-secondary); padding: 48px;">
         <i data-lucide="users" style="width: 48px; height: 48px; margin: 0 auto 16px auto; opacity: 0.5;"></i>
-        <p>No student profiles mapped in this division yet.</p>
+        <p>No student profiles mapped in this section yet.</p>
         <p style="font-size: 0.85rem; margin-top: 8px;">Tap "Add New Student" above to build your class records.</p>
       </div>
     `;
@@ -1109,7 +1290,7 @@ function renderStudents() {
     return;
   }
 
-  state.students.forEach(student => {
+  sectionStudents.forEach(student => {
     const card = document.createElement('div');
     card.className = 'card';
     card.id = `student-${student.id}`;
@@ -1152,6 +1333,16 @@ function renderStudents() {
         document.getElementById('student-name').value = matchStud.name;
         document.getElementById('student-roll').value = matchStud.roll;
         document.getElementById('student-parent').value = matchStud.parentContact;
+        
+        // Populate section list and select current section of student
+        const selectFormSection = document.getElementById('student-section-id');
+        if (selectFormSection) {
+          selectFormSection.innerHTML = state.sections.map(sec => 
+            `<option value="${sec.id}">${sec.name}</option>`
+          ).join('');
+          selectFormSection.value = matchStud.sectionId || state.activeSectionId;
+        }
+
         document.getElementById('student-iep').checked = matchStud.isIEP;
         document.getElementById('student-notes').value = matchStud.notes || '';
         
@@ -1191,23 +1382,25 @@ async function renderAttendance() {
     dateHeading.innerText = `Roster Verification File for ${formattedDayText}`;
   }
 
-  if (state.students.length === 0) {
+  const sectionStudents = getStudentsBySection(state.activeSectionId);
+
+  if (sectionStudents.length === 0) {
     container.innerHTML = `
       <div class="panel" style="text-align: center; color: var(--text-secondary); padding: 48px;">
         <i data-lucide="user-x" style="width: 48px; height: 48px; margin: 0 auto 16px auto; opacity: 0.5;"></i>
-        <p>Your class registry holds 0 students. Active profiles are required to check attendance.</p>
+        <p>Your class registry holds 0 students in this section. Active profiles are required to check attendance.</p>
       </div>
     `;
     if (window.lucide) window.lucide.createIcons();
     return;
   }
 
-  // Obtain todays marked values map
-  const marksMap = await db.getAttendance(state.activeDate);
+  // Obtain todays marked values map for this section
+  const marksMap = await db.getAttendance(state.activeDate, state.activeSectionId);
 
   let presentC = 0, absentC = 0, lateC = 0;
 
-  state.students.forEach(student => {
+  sectionStudents.forEach(student => {
     // defaults to empty string if un-marked
     const status = marksMap[student.id] || '';
     
@@ -1252,7 +1445,7 @@ async function renderAttendance() {
 }
 
 async function handleToggleAttendance(studentId, targetStatus) {
-  const currentMarks = await db.getAttendance(state.activeDate);
+  const currentMarks = await db.getAttendance(state.activeDate, state.activeSectionId);
   
   if (currentMarks[studentId] === targetStatus) {
     // Deselect if tapping currently active button
@@ -1262,7 +1455,7 @@ async function handleToggleAttendance(studentId, targetStatus) {
   }
 
   try {
-    await db.saveAttendance(state.activeDate, currentMarks);
+    await db.saveAttendance(state.activeDate, state.activeSectionId, currentMarks);
     await renderAttendance(); // dynamic redraw listing and recount numbers
   } catch (err) {
     showToast(err.message, 'error');
@@ -1276,19 +1469,20 @@ async function renderAttendanceHistory() {
 
   container.innerHTML = '';
   const history = await db.getAllAttendanceHistory();
+  const sectionHistory = history.filter(h => h.sectionId === state.activeSectionId);
 
-  if (history.length === 0) {
+  if (sectionHistory.length === 0) {
     container.innerHTML = `
       <div style="text-align: center; color: var(--text-secondary); padding: 32px 12px;">
         <i data-lucide="calendar" style="width:36px; height:36px; margin: 0 auto 10px auto; opacity:0.5;"></i>
-        <p style="font-size:0.95rem;">No historical attendance records saved yet.</p>
+        <p style="font-size:0.95rem;">No historical attendance records saved for this section yet.</p>
       </div>
     `;
     if (window.lucide) window.lucide.createIcons();
     return;
   }
 
-  history.forEach(record => {
+  sectionHistory.forEach(record => {
     const dateObj = new Date(record.date + 'T00:00:00');
     const formattedDate = dateObj.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
     
@@ -1342,7 +1536,7 @@ async function renderAttendanceHistory() {
     btn.addEventListener('click', async () => {
       if (confirm(`Are you sure you want to permanently delete the attendance record for ${btn.dataset.date}?`)) {
         try {
-          await db.deleteAttendanceRecord(btn.dataset.date);
+          await db.deleteAttendanceRecord(btn.dataset.date, state.activeSectionId);
           await renderAttendanceHistory();
           showToast(`Attendance record for ${btn.dataset.date} deleted.`, 'error');
         } catch (err) {
@@ -1388,15 +1582,16 @@ async function renderGrades() {
     state.selectedSubject = state.settings.subjects[0];
   }
 
-  // 2. Fetch grades data dictionary
-  const gradebook = await db.getGradesForSubject(state.selectedSubject);
+  // 2. Fetch grades data dictionary for active subject and active section
+  const gradebook = await db.getGradesForSubject(state.selectedSubject, state.activeSectionId);
+  const sectionStudents = getStudentsBySection(state.activeSectionId);
 
-  if (state.students.length === 0) {
+  if (sectionStudents.length === 0) {
     tableWrapper.classList.add('hidden');
     emptyState.classList.remove('hidden');
     emptyState.innerHTML = `
       <i data-lucide="alert-circle" style="width:48px; height:48px; margin: 0 auto 12px auto; opacity:0.5; color:var(--accent-color);"></i>
-      <p>Please register student profiles in the "Students" roster list before attempting to enter scores.</p>
+      <p>Please register student profiles in this section before attempting to enter scores.</p>
     `;
     if (window.lucide) window.lucide.createIcons();
     return;
@@ -1407,7 +1602,7 @@ async function renderGrades() {
   gradebook.assignments.forEach((assignment, index) => {
     headerRowMarkup += `
       <th style="text-align: center; min-width: 100px; position:relative;">
-        <span style="display:block; padding-right:12px;">${assignment}</span>
+        <span style="display:block; padding-right:12px;">${assignment.name}</span>
         <button class="remove-assignment-header-btn" data-idx="${index}" 
                 style="position:absolute; right:4px; top:12px; background:none; border:none; color:var(--error-color); cursor:pointer; font-weight:bold; font-size: 0.8rem;" 
                 title="Remove Assigment Column">×</button>
@@ -1421,27 +1616,27 @@ async function renderGrades() {
     btn.addEventListener('click', async (e) => {
       e.stopPropagation();
       const colIdx = parseInt(btn.dataset.idx);
-      const targetLabel = gradebook.assignments[colIdx];
-      if (confirm(`Are you sure you want to delete assignment column "${targetLabel}" and all recorded grades?`)) {
+      const targetAssign = gradebook.assignments[colIdx];
+      if (confirm(`Are you sure you want to delete assignment column "${targetAssign.name}" and all recorded grades?`)) {
         gradebook.assignments.splice(colIdx, 1);
         
-        // Remove individual scores from this column index safely
+        // Remove individual scores from this column ID safely
         Object.keys(gradebook.scores).forEach(studId => {
-          if (gradebook.scores[studId] && gradebook.scores[studId][targetLabel] !== undefined) {
-            delete gradebook.scores[studId][targetLabel];
+          if (gradebook.scores[studId] && gradebook.scores[studId][targetAssign.id] !== undefined) {
+            delete gradebook.scores[studId][targetAssign.id];
           }
         });
 
         await db.saveGradesForSubject(state.selectedSubject, gradebook);
         await renderGrades();
-        showToast(`Column "${targetLabel}" removed.`, 'error');
+        showToast(`Column "${targetAssign.name}" removed.`, 'error');
       }
     });
   });
 
   // Render Table Rows per student dynamically
   tableBody.innerHTML = '';
-  state.students.forEach(student => {
+  sectionStudents.forEach(student => {
     const studentScoresMap = gradebook.scores[student.id] || {};
     
     let rowMarkup = `<tr><td style="font-weight:600;"><span class="text-primary">${student.name}</span></td>`;
@@ -1450,7 +1645,7 @@ async function renderGrades() {
     let counts = 0;
 
     gradebook.assignments.forEach(assignment => {
-      const score = studentScoresMap[assignment] !== undefined ? studentScoresMap[assignment] : '';
+      const score = studentScoresMap[assignment.id] !== undefined ? studentScoresMap[assignment.id] : '';
       
       if (score !== '') {
         sum += parseFloat(score);
@@ -1460,7 +1655,7 @@ async function renderGrades() {
       rowMarkup += `
         <td style="text-align: center;">
           <input type="number" class="cell-input inline-score-input" min="0" max="100" 
-                 data-student="${student.id}" data-assignment="${assignment}" value="${score}" placeholder="-" />
+                 data-student="${student.id}" data-assignment="${assignment.id}" value="${score}" placeholder="-" />
         </td>
       `;
     });
@@ -1485,7 +1680,7 @@ async function renderGrades() {
   document.querySelectorAll('.inline-score-input').forEach(input => {
     input.addEventListener('change', async (e) => {
       const studId = input.dataset.student;
-      const assign = input.dataset.assignment;
+      const assignId = input.dataset.assignment;
       const rawVal = e.target.value.trim();
 
       if (!gradebook.scores[studId]) {
@@ -1493,15 +1688,15 @@ async function renderGrades() {
       }
 
       if (rawVal === '') {
-        delete gradebook.scores[studId][assign];
+        delete gradebook.scores[studId][assignId];
       } else {
         const valNum = parseFloat(rawVal);
         if (isNaN(valNum) || valNum < 0 || valNum > 100) {
           showToast('Please type a valid grading grade score between 0 and 100.', 'error');
-          e.target.value = gradebook.scores[studId][assign] !== undefined ? gradebook.scores[studId][assign] : '';
+          e.target.value = gradebook.scores[studId][assignId] !== undefined ? gradebook.scores[studId][assignId] : '';
           return;
         }
-        gradebook.scores[studId][assign] = valNum;
+        gradebook.scores[studId][assignId] = valNum;
       }
 
       try {
@@ -1518,23 +1713,22 @@ async function renderGrades() {
 
 // Compile grid cells to CSV format and execute local file downloading
 async function exportTableToCSV(subjectName) {
-  const grades = await db.getGradesForSubject(subjectName);
-  const rosterNameMap = {};
-  state.students.forEach(s => { rosterNameMap[s.id] = s.name; });
+  const grades = await db.getGradesForSubject(subjectName, state.activeSectionId);
+  const sectionStudents = getStudentsBySection(state.activeSectionId);
 
   // Columns title line headers
   const headersList = ['Student Roll Identifier', 'Full Student Name'];
-  grades.assignments.forEach(a => { headersList.push(`"${a}"`); });
+  grades.assignments.forEach(a => { headersList.push(`"${a.name}"`); });
   headersList.push('Classroom Grade Average %');
 
   const rowsList = [headersList.join(',')];
 
-  state.students.forEach(student => {
+  sectionStudents.forEach(student => {
     const studentRowList = [student.roll, `"${student.name}"`];
     let sum = 0, count = 0;
 
     grades.assignments.forEach(a => {
-      const score = grades.scores[student.id]?.[a];
+      const score = grades.scores[student.id]?.[a.id];
       if (score !== undefined && score !== '') {
         studentRowList.push(score);
         sum += parseFloat(score);
@@ -1724,9 +1918,12 @@ async function renderIncidents() {
 
   if (!studentSelect || !feedList) return;
 
+  const sectionStudents = getStudentsBySection(state.activeSectionId);
+  const sectionStudentIds = new Set(sectionStudents.map(s => s.id));
+
   // 1. Populate log student select dropdown
   studentSelect.innerHTML = '<option value="">-- Select Student Involved --</option>';
-  state.students.forEach(s => {
+  sectionStudents.forEach(s => {
     const opt = document.createElement('option');
     opt.value = s.id;
     opt.innerText = s.name;
@@ -1738,9 +1935,10 @@ async function renderIncidents() {
 
   // 2. Render feed list
   const incidents = await db.getIncidents();
+  const filteredIncidents = incidents.filter(i => sectionStudentIds.has(i.studentId));
   feedList.innerHTML = '';
 
-  if (incidents.length === 0) {
+  if (filteredIncidents.length === 0) {
     feedList.innerHTML = `
       <div style="text-align: center; color: var(--text-secondary); padding: 32px 12px;">
         <i data-lucide="file-check-2" style="width:36px; height:36px; margin: 0 auto 10px auto; opacity:0.5; color:var(--success-color);"></i>
@@ -1751,8 +1949,8 @@ async function renderIncidents() {
     return;
   }
 
-  incidents.forEach(incident => {
-    const studName = state.students.find(s => s.id === incident.studentId)?.name || 'De-registered Student';
+  filteredIncidents.forEach(incident => {
+    const studName = sectionStudents.find(s => s.id === incident.studentId)?.name || 'De-registered Student';
     const formDate = incident.date 
       ? new Date(incident.date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
       : 'Asynchronous';
@@ -1838,8 +2036,9 @@ async function renderParentMessages() {
   const select = document.getElementById('message-student');
   if (!select) return;
 
+  const sectionStudents = getStudentsBySection(state.activeSectionId);
   select.innerHTML = '<option value="">-- Choose Student Roster Profile --</option>';
-  state.students.forEach(student => {
+  sectionStudents.forEach(student => {
     const opt = document.createElement('option');
     opt.value = student.id;
     opt.innerText = student.name;
@@ -1851,9 +2050,9 @@ async function renderParentMessages() {
   select.addEventListener('change', handleMessageStudentChange);
 
   // Trigger default selection rendering
-  if (state.students.length > 0) {
-    select.value = state.students[0].id;
-    await renderSavedDraftsAndQueue(state.students[0].id);
+  if (sectionStudents.length > 0) {
+    select.value = sectionStudents[0].id;
+    await renderSavedDraftsAndQueue(sectionStudents[0].id);
   } else {
     await renderSavedDraftsAndQueue('');
   }
@@ -1868,8 +2067,9 @@ async function renderProgressReports() {
   const select = document.getElementById('reports-student-select');
   if (!select) return;
 
+  const sectionStudents = getStudentsBySection(state.activeSectionId);
   select.innerHTML = '<option value="">-- Select Student Target Profile --</option>';
-  state.students.forEach(student => {
+  sectionStudents.forEach(student => {
     const opt = document.createElement('option');
     opt.value = student.id;
     opt.innerText = student.name;
@@ -1881,10 +2081,10 @@ async function renderProgressReports() {
   select.addEventListener('change', handleReportStudentChange);
 
   // Trigger metrics analysis for currently active selection
-  if (state.students.length > 0) {
-    select.value = state.students[0].id;
-    await calculateProgressMetrics(state.students[0].id);
-    await renderSavedReportsAndQueue(state.students[0].id);
+  if (sectionStudents.length > 0) {
+    select.value = sectionStudents[0].id;
+    await calculateProgressMetrics(sectionStudents[0].id);
+    await renderSavedReportsAndQueue(sectionStudents[0].id);
   } else {
     document.getElementById('report-grade-avg').innerText = '0.0%';
     document.getElementById('report-attendance-rate').innerText = '100.0%';
@@ -1906,11 +2106,11 @@ async function calculateProgressMetrics(studentId) {
   let gradeSumTotal = 0, assignmentCountTotal = 0;
   
   for (const sub of state.settings.subjects) {
-    const gradeBookData = await db.getGradesForSubject(sub);
+    const gradeBookData = await db.getGradesForSubject(sub, state.activeSectionId);
     const studScores = gradeBookData.scores[studentId] || {};
     
     gradeBookData.assignments.forEach(assign => {
-      const score = studScores[assign];
+      const score = studScores[assign.id];
       if (score !== undefined && score !== '') {
         gradeSumTotal += parseFloat(score);
         assignmentCountTotal++;
@@ -1933,10 +2133,11 @@ async function calculateProgressMetrics(studentId) {
 
   // 2. Calculate Active Attendance Rate %
   const allHistory = await db.getAllAttendanceHistory();
-  let loggedDaysCount = allHistory.length;
+  const sectionHistory = allHistory.filter(h => h.sectionId === state.activeSectionId);
+  let loggedDaysCount = sectionHistory.length;
   let activeStudentPrC = 0;
 
-  for (const day of allHistory) {
+  for (const day of sectionHistory) {
     const status = day.marks[studentId];
     if (status === 'present' || status === 'late') {
       activeStudentPrC++;
@@ -1986,6 +2187,7 @@ function renderSettings() {
   }
 
   renderSettingsSubjects();
+  renderSettingsSections();
 }
 
 
@@ -2018,6 +2220,92 @@ function renderSettingsSubjects() {
 
           showToast(`Course Subject "${subName}" deleted and matching grade sheets wiped.`, 'error');
           renderSettingsSubjects();
+        } catch (err) {
+          showToast(err.message, 'error');
+        }
+      }
+    });
+  });
+}
+
+function renderSettingsSections() {
+  const container = document.getElementById('settings-section-container');
+  if (!container) return;
+
+  container.innerHTML = '';
+  state.sections.forEach(sec => {
+    const tag = document.createElement('div');
+    tag.className = 'tag';
+    tag.style.display = 'inline-flex';
+    tag.style.alignItems = 'center';
+    tag.style.gap = '8px';
+    tag.innerHTML = `
+      <span>${sec.name}</span>
+      <button class="section-edit" data-id="${sec.id}" title="Rename Section" style="background:none; border:none; color:var(--text-secondary); cursor:pointer; font-size:0.8rem; padding:0 2px;">
+        ✏️
+      </button>
+      <button class="section-remove tag-remove" data-id="${sec.id}" title="Delete Section" style="background:none; border:none; cursor:pointer; padding:0 2px; font-weight:bold;">&times;</button>
+    `;
+    container.appendChild(tag);
+  });
+
+  // Rename Section trigger
+  container.querySelectorAll('.section-edit').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const secId = btn.dataset.id;
+      const sec = state.sections.find(s => s.id === secId);
+      if (!sec) return;
+      
+      const newName = prompt('Enter new name for section:', sec.name);
+      if (newName === null) return;
+      const trimmed = newName.trim();
+      if (!trimmed) {
+        showToast('Section name cannot be empty.', 'error');
+        return;
+      }
+      
+      try {
+        sec.name = trimmed;
+        await db.saveSection(sec);
+        state.sections = await db.getSections();
+        renderSettingsSections();
+        showToast(`Section renamed to "${trimmed}".`, 'success');
+        
+        // Re-render universal selectors to reflect changes
+        const activeModule = document.querySelector('.module.active');
+        if (activeModule) {
+          const activeId = activeModule.id.replace('module-', '');
+          renderUniversalSectionSelector(activeId);
+        }
+      } catch (err) {
+        showToast(err.message, 'error');
+      }
+    });
+  });
+
+  // Delete Section trigger with cascade warning
+  container.querySelectorAll('.section-remove').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const secId = btn.dataset.id;
+      const sec = state.sections.find(s => s.id === secId);
+      if (!sec) return;
+      
+      if (confirm(`CRITICAL WARNING: Deleting section "${sec.name}" will permanently delete ALL students, grades, and attendance records associated with it. Are you sure you want to proceed?`)) {
+        try {
+          await db.deleteSection(secId);
+          state.sections = await db.getSections();
+          state.students = await db.getStudents();
+          
+          if (state.activeSectionId === secId) {
+            state.activeSectionId = state.sections[0]?.id || '';
+            localStorage.setItem('activeSectionId', state.activeSectionId);
+          }
+          
+          renderSettingsSections();
+          showToast(`Section "${sec.name}" and all associated data permanently deleted.`, 'error');
+          
+          // Re-render current module to reflect change
+          await renderActiveModule();
         } catch (err) {
           showToast(err.message, 'error');
         }

@@ -123,59 +123,63 @@
             <div class="btn btn-secondary" id="dash-school-badge">Loading School...</div>
           </div>
 
-          <div class="dashboard-grid">
-            <div class="card">
-              <i data-lucide="users" class="card-icon"></i>
-              <div class="card-num" id="dash-total-students">0</div>
-              <div class="card-label">Total Students</div>
-            </div>
-            <div class="card">
-              <i data-lucide="user-x" class="card-icon" style="color: var(--error-color);"></i>
-              <div class="card-num" id="dash-absent-today" style="color: var(--error-color);">0</div>
-              <div class="card-label">Absent Today</div>
-            </div>
-            <div class="card">
-              <i data-lucide="file-edit" class="card-icon" style="color: var(--warning-color);"></i>
-              <div class="card-num" id="dash-pending-grades" style="color: var(--warning-color);">0</div>
-              <div class="card-label">Assignments Listed</div>
-            </div>
-            <div class="card">
-              <i data-lucide="book-open" class="card-icon" style="color: var(--success-color);"></i>
-              <div class="card-num" id="dash-upcoming-lessons" style="color: var(--success-color);">0</div>
-              <div class="card-label">Saved Lesson Plans</div>
-            </div>
-          </div>
+          <div class="universal-section-selector-container"></div>
 
-          <div class="dashboard-actions">
-            <div class="panel">
-              <div class="panel-header">
-                <h3 class="panel-title">Quick Actions</h3>
+          <div class="module-content-wrapper">
+            <div class="dashboard-grid">
+              <div class="card">
+                <i data-lucide="users" class="card-icon"></i>
+                <div class="card-num" id="dash-total-students">0</div>
+                <div class="card-label">Total Students</div>
               </div>
-              <div class="quick-actions-list">
-                <div class="action-card" onclick="document.getElementById('nav-attendance').click()">
-                  <i data-lucide="calendar"></i>
-                  <span>Take Attendance</span>
-                </div>
-                <div class="action-card" onclick="document.getElementById('nav-grades').click()">
-                  <i data-lucide="award"></i>
-                  <span>Record Grades</span>
-                </div>
-                <div class="action-card" onclick="document.getElementById('nav-students').click()">
-                  <i data-lucide="user-plus"></i>
-                  <span>Add Students</span>
-                </div>
-                <div class="action-card" onclick="document.getElementById('nav-planner').click()">
-                  <i data-lucide="sparkles"></i>
-                  <span>Create Lesson Plan</span>
-                </div>
+              <div class="card">
+                <i data-lucide="user-x" class="card-icon" style="color: var(--error-color);"></i>
+                <div class="card-num" id="dash-absent-today" style="color: var(--error-color);">0</div>
+                <div class="card-label">Absent Today</div>
+              </div>
+              <div class="card">
+                <i data-lucide="file-edit" class="card-icon" style="color: var(--warning-color);"></i>
+                <div class="card-num" id="dash-pending-grades" style="color: var(--warning-color);">0</div>
+                <div class="card-label">Assignments Listed</div>
+              </div>
+              <div class="card">
+                <i data-lucide="book-open" class="card-icon" style="color: var(--success-color);"></i>
+                <div class="card-num" id="dash-upcoming-lessons" style="color: var(--success-color);">0</div>
+                <div class="card-label">Saved Lesson Plans</div>
               </div>
             </div>
-            <div class="panel">
-              <div class="panel-header">
-                <h3 class="panel-title">Today's Class Profile</h3>
+
+            <div class="dashboard-actions">
+              <div class="panel">
+                <div class="panel-header">
+                  <h3 class="panel-title">Quick Actions</h3>
+                </div>
+                <div class="quick-actions-list">
+                  <div class="action-card" onclick="document.getElementById('nav-attendance').click()">
+                    <i data-lucide="calendar"></i>
+                    <span>Take Attendance</span>
+                  </div>
+                  <div class="action-card" onclick="document.getElementById('nav-grades').click()">
+                    <i data-lucide="award"></i>
+                    <span>Record Grades</span>
+                  </div>
+                  <div class="action-card" onclick="document.getElementById('nav-students').click()">
+                    <i data-lucide="user-plus"></i>
+                    <span>Add Students</span>
+                  </div>
+                  <div class="action-card" onclick="document.getElementById('nav-planner').click()">
+                    <i data-lucide="sparkles"></i>
+                    <span>Create Lesson Plan</span>
+                  </div>
+                </div>
               </div>
-              <div style="font-size: 0.95rem; color: var(--text-secondary); display:flex; flex-direction:column; gap:12px;" id="dash-class-summary-text">
-                <div>No registered students found. Head to the <strong style="color:var(--accent-color); cursor:pointer;" onclick="document.getElementById('nav-students').click()">Students module</strong> to set up your roster!</div>
+              <div class="panel">
+                <div class="panel-header">
+                  <h3 class="panel-title">Today's Class Profile</h3>
+                </div>
+                <div style="font-size: 0.95rem; color: var(--text-secondary); display:flex; flex-direction:column; gap:12px;" id="dash-class-summary-text">
+                  <div>No registered students found. Head to the <strong style="color:var(--accent-color); cursor:pointer;" onclick="document.getElementById('nav-students').click()">Students module</strong> to set up your roster!</div>
+                </div>
               </div>
             </div>
           </div>
@@ -194,34 +198,38 @@
             </div>
           </div>
 
-          <!-- Tab 1: Daily Register -->
-          <div id="attendance-daily-tab">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 12px;">
-              <div class="attendance-header" style="flex: 1; margin-bottom: 0;">
-                <div style="font-weight: 600;" id="attendance-roster-heading">Roster for [Date]</div>
-                <div class="attendance-stats">
-                  <div>Present: <span class="stat-badge present font-sans" id="att-stats-present">0</span></div>
-                  <div>Absent: <span class="stat-badge absent" id="att-stats-absent">0</span></div>
-                  <div>Late: <span class="stat-badge late" id="att-stats-late">0</span></div>
+          <div class="universal-section-selector-container"></div>
+
+          <div class="module-content-wrapper">
+            <!-- Tab 1: Daily Register -->
+            <div id="attendance-daily-tab">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 12px;">
+                <div class="attendance-header" style="flex: 1; margin-bottom: 0;">
+                  <div style="font-weight: 600;" id="attendance-roster-heading">Roster for [Date]</div>
+                  <div class="attendance-stats">
+                    <div>Present: <span class="stat-badge present font-sans" id="att-stats-present">0</span></div>
+                    <div>Absent: <span class="stat-badge absent" id="att-stats-absent">0</span></div>
+                    <div>Late: <span class="stat-badge late" id="att-stats-late">0</span></div>
+                  </div>
+                </div>
+                <div>
+                  <input type="date" id="attendance-date-picker" style="max-width: 200px;" />
                 </div>
               </div>
-              <div>
-                <input type="date" id="attendance-date-picker" style="max-width: 200px;" />
+
+              <div class="attendance-list" id="attendance-roster-list">
+                <!-- Rendered dynamically -->
               </div>
             </div>
 
-            <div class="attendance-list" id="attendance-roster-list">
-              <!-- Rendered dynamically -->
-            </div>
-          </div>
-
-          <!-- Tab 2: Attendance History -->
-          <div id="attendance-history-tab" class="panel hidden">
-            <div class="panel-header">
-              <h3 class="panel-title">Past Attendance Records</h3>
-            </div>
-            <div class="incident-list-container" id="attendance-history-list">
-              <!-- Rendered dynamically -->
+            <!-- Tab 2: Attendance History -->
+            <div id="attendance-history-tab" class="panel hidden">
+              <div class="panel-header">
+                <h3 class="panel-title">Past Attendance Records</h3>
+              </div>
+              <div class="incident-list-container" id="attendance-history-list">
+                <!-- Rendered dynamically -->
+              </div>
             </div>
           </div>
         </section>
@@ -244,19 +252,23 @@
             </div>
           </div>
 
-          <div class="table-responsive">
-            <table id="grades-data-table">
-              <thead>
-                <!-- Populated dynamically -->
-              </thead>
-              <tbody id="grades-data-body">
-                <!-- Populated dynamically -->
-              </tbody>
-            </table>
-          </div>
-          <div id="grades-empty-state" class="panel hidden" style="text-align: center; color: var(--text-secondary); padding: 48px;">
-            <i data-lucide="award" style="width: 48px; height: 48px; margin: 0 auto 16px auto; opacity: 0.5;"></i>
-            <p>Please register student profiles in the "Students" directory and configure Subjects in "Settings" to populate Gradebooks!</p>
+          <div class="universal-section-selector-container"></div>
+
+          <div class="module-content-wrapper">
+            <div class="table-responsive">
+              <table id="grades-data-table">
+                <thead>
+                  <!-- Populated dynamically -->
+                </thead>
+                <tbody id="grades-data-body">
+                  <!-- Populated dynamically -->
+                </tbody>
+              </table>
+            </div>
+            <div id="grades-empty-state" class="panel hidden" style="text-align: center; color: var(--text-secondary); padding: 48px;">
+              <i data-lucide="award" style="width: 48px; height: 48px; margin: 0 auto 16px auto; opacity: 0.5;"></i>
+              <p>Please register student profiles in the "Students" directory and configure Subjects in "Settings" to populate Gradebooks!</p>
+            </div>
           </div>
         </section>
 
@@ -272,50 +284,60 @@
             </button>
           </div>
 
-          <!-- Add / Edit Student Drawer Panel -->
-          <div class="panel hidden" id="student-form-panel" style="margin-bottom: 24px;">
-            <h3 class="panel-title" id="student-form-title" style="margin-bottom: 20px;">Register New Student Profile</h3>
-            <form id="student-entry-form">
-              <input type="hidden" id="student-idx" />
-              <div class="form-row">
-                <div class="form-group">
-                  <label for="student-name">Full Student Name *</label>
-                  <input type="text" id="student-name" required placeholder="E.g. Emily Watson" />
-                </div>
-                <div class="form-group">
-                  <label for="student-roll">Roll Number / Index ID *</label>
-                  <input type="text" id="student-roll" required placeholder="E.g. RO-1049" />
-                </div>
-              </div>
-              <div class="form-row">
-                <div class="form-group">
-                  <label for="student-parent">Primary Contact (Email/Phone) *</label>
-                  <input type="text" id="student-parent" required placeholder="E.g. parent@email.com or +1 555-0192" />
-                </div>
-                <div class="form-group" style="display:flex; flex-direction:column; justify-content:center;">
-                  <label style="display:flex; align-items:center; cursor:pointer;">
-                    <input type="checkbox" id="student-iep" /> Individualized Education Plan (IEP)?
-                  </label>
-                </div>
-              </div>
-              <div class="form-group">
-                <label for="student-notes">Personalized Notes / Academic Needs</label>
-                <textarea id="student-notes" rows="2" placeholder="E.g. Vision support. Prefers front-row seating. Excellent spatial skills."></textarea>
-              </div>
-              <div style="display: flex; gap: 12px; justify-content: flex-end;">
-                <button type="button" class="btn btn-secondary" id="btn-cancel-student">Cancel</button>
-                <button type="submit" class="btn btn-primary">Save Student</button>
-              </div>
-            </form>
-          </div>
+          <div class="universal-section-selector-container"></div>
 
-          <!-- Live search -->
-          <div class="search-container">
-            <input type="text" id="student-search-bar" placeholder="🔍 Instant search by student name, roll number, or IEP..." />
-          </div>
+          <div class="module-content-wrapper">
+            <!-- Add / Edit Student Drawer Panel -->
+            <div class="panel hidden" id="student-form-panel" style="margin-bottom: 24px;">
+              <h3 class="panel-title" id="student-form-title" style="margin-bottom: 20px;">Register New Student Profile</h3>
+              <form id="student-entry-form">
+                <input type="hidden" id="student-idx" />
+                <div class="form-row">
+                  <div class="form-group">
+                    <label for="student-name">Full Student Name *</label>
+                    <input type="text" id="student-name" required placeholder="E.g. Emily Watson" />
+                  </div>
+                  <div class="form-group">
+                    <label for="student-roll">Roll Number / Index ID *</label>
+                    <input type="text" id="student-roll" required placeholder="E.g. RO-1049" />
+                  </div>
+                </div>
+                <div class="form-row">
+                  <div class="form-group">
+                    <label for="student-parent">Primary Contact (Email/Phone) *</label>
+                    <input type="text" id="student-parent" required placeholder="E.g. parent@email.com or +1 555-0192" />
+                  </div>
+                  <div class="form-group">
+                    <label for="student-section-id">Class Section *</label>
+                    <select id="student-section-id" required></select>
+                  </div>
+                </div>
+                <div class="form-row">
+                  <div class="form-group" style="display:flex; flex-direction:column; justify-content:center;">
+                    <label style="display:flex; align-items:center; cursor:pointer;">
+                      <input type="checkbox" id="student-iep" /> Individualized Education Plan (IEP)?
+                    </label>
+                  </div>
+                </div>
+                <div class="form-group">
+                  <label for="student-notes">Personalized Notes / Academic Needs</label>
+                  <textarea id="student-notes" rows="2" placeholder="E.g. Vision support. Prefers front-row seating. Excellent spatial skills."></textarea>
+                </div>
+                <div style="display: flex; gap: 12px; justify-content: flex-end;">
+                  <button type="button" class="btn btn-secondary" id="btn-cancel-student">Cancel</button>
+                  <button type="submit" class="btn btn-primary">Save Student</button>
+                </div>
+              </form>
+            </div>
 
-          <div class="student-grid" id="student-roster-grid">
-            <!-- Dynamic profile cards -->
+            <!-- Live search -->
+            <div class="search-container">
+              <input type="text" id="student-search-bar" placeholder="🔍 Instant search by student name, roll number, or IEP..." />
+            </div>
+
+            <div class="student-grid" id="student-roster-grid">
+              <!-- Dynamic profile cards -->
+            </div>
           </div>
         </section>
 
@@ -479,65 +501,69 @@
             </div>
           </div>
 
-          <div class="dashboard-actions">
-            <!-- Left panel: Composer Controls -->
-            <div class="panel">
-              <div class="panel-header">
-                <h3 class="panel-title">Details for Message Configuration</h3>
-              </div>
-              <form id="message-creation-form">
-                <div class="form-group">
-                  <label for="message-student">Select Student *</label>
-                  <select id="message-student" required>
-                    <option value="">-- Choose Student --</option>
-                  </select>
-                </div>
-                <div class="form-group">
-                  <label for="message-category">Select Focus/Tone *</label>
-                  <select id="message-category" required>
-                    <option value="outstanding behavioral improvements and exceptional class assistance">Commendable Work & Positive Behavior</option>
-                    <option value="missed homework routines and consistent academic delays in turning in reports">Missed/Incomplete Homework Concerns</option>
-                    <option value="unexpected classroom behavioral incidents, social interactions, or lack of focus">Behavioral Concerns with Class Focus</option>
-                    <option value="updates on their Individualized Education Plan (IEP/504) and specific accommodations">Accommodations & IEP Progression Updates</option>
-                    <option value="grades decline, test feedback, or options for extra peer tutoring assistance">Academic Struggling Feedback</option>
-                  </select>
-                </div>
-                <div class="form-group">
-                  <label for="message-context">Teacher's Contextual Bullet-points (Recommended)</label>
-                  <textarea id="message-context" rows="3" placeholder="Examples: Showed great analytical work today on fractions but fell asleep twice during science."></textarea>
-                </div>
-                <button type="button" class="btn btn-primary" id="btn-generate-ai-message" style="width: 100%;">
-                  <i data-lucide="sparkles"></i> <span>Build Empathetic Draft via Gemini</span>
-                </button>
-              </form>
-            </div>
+          <div class="universal-section-selector-container"></div>
 
-            <!-- Right panel: Text Output Canvas -->
-            <div class="panel ai-section">
-              <div class="ai-header">
-                <i data-lucide="message-circle" style="color: var(--accent-color);"></i>
-                <h3 class="panel-title" style="color: var(--text-primary);">Draft Message Output</h3>
-              </div>
-              <textarea class="ai-editor-box" id="message-editable-output" style="width:100%; height: 230px;" placeholder="Message drafts appear here..."></textarea>
-              <div class="ai-actions">
-                <div class="page-title-desc">Words are editable before sending.</div>
-                <button class="btn btn-secondary" id="btn-copy-parent-message" style="gap:5px;">
-                  <i data-lucide="copy"></i> Copy Draft Message
-                </button>
-              </div>
-              <div id="pending-messages-container" class="hidden" style="margin-top: 16px; border-top: 1px solid var(--border-color); padding-top: 16px;">
-                <div style="font-weight: 600; font-size: 0.9rem; color: var(--text-secondary); margin-bottom: 8px; display: flex; align-items: center; gap: 6px;">
-                  <i data-lucide="clock" style="width: 14px; height: 14px; color: var(--warning-color);"></i>
-                  <span>Pending AI Generations</span>
+          <div class="module-content-wrapper">
+            <div class="dashboard-actions">
+              <!-- Left panel: Composer Controls -->
+              <div class="panel">
+                <div class="panel-header">
+                  <h3 class="panel-title">Details for Message Configuration</h3>
                 </div>
-                <div id="pending-messages-list" style="display: flex; flex-direction: column; gap: 8px;"></div>
+                <form id="message-creation-form">
+                  <div class="form-group">
+                    <label for="message-student">Select Student *</label>
+                    <select id="message-student" required>
+                      <option value="">-- Choose Student --</option>
+                    </select>
+                  </div>
+                  <div class="form-group">
+                    <label for="message-category">Select Focus/Tone *</label>
+                    <select id="message-category" required>
+                      <option value="outstanding behavioral improvements and exceptional class assistance">Commendable Work & Positive Behavior</option>
+                      <option value="missed homework routines and consistent academic delays in turning in reports">Missed/Incomplete Homework Concerns</option>
+                      <option value="unexpected classroom behavioral incidents, social interactions, or lack of focus">Behavioral Concerns with Class Focus</option>
+                      <option value="updates on their Individualized Education Plan (IEP/504) and specific accommodations">Accommodations & IEP Progression Updates</option>
+                      <option value="grades decline, test feedback, or options for extra peer tutoring assistance">Academic Struggling Feedback</option>
+                    </select>
+                  </div>
+                  <div class="form-group">
+                    <label for="message-context">Teacher's Contextual Bullet-points (Recommended)</label>
+                    <textarea id="message-context" rows="3" placeholder="Examples: Showed great analytical work today on fractions but fell asleep twice during science."></textarea>
+                  </div>
+                  <button type="button" class="btn btn-primary" id="btn-generate-ai-message" style="width: 100%;">
+                    <i data-lucide="sparkles"></i> <span>Build Empathetic Draft via Gemini</span>
+                  </button>
+                </form>
               </div>
-              <div id="saved-messages-container" class="hidden" style="margin-top: 16px; border-top: 1px solid var(--border-color); padding-top: 16px;">
-                <div style="font-weight: 600; font-size: 0.9rem; color: var(--text-secondary); margin-bottom: 8px; display: flex; align-items: center; gap: 6px;">
-                  <i data-lucide="message-square" style="width: 14px; height: 14px; color: var(--accent-color);"></i>
-                  <span>Completed Message Drafts</span>
+
+              <!-- Right panel: Text Output Canvas -->
+              <div class="panel ai-section">
+                <div class="ai-header">
+                  <i data-lucide="message-circle" style="color: var(--accent-color);"></i>
+                  <h3 class="panel-title" style="color: var(--text-primary);">Draft Message Output</h3>
                 </div>
-                <div id="saved-messages-list" style="display: flex; flex-direction: column; gap: 8px;"></div>
+                <textarea class="ai-editor-box" id="message-editable-output" style="width:100%; height: 230px;" placeholder="Message drafts appear here..."></textarea>
+                <div class="ai-actions">
+                  <div class="page-title-desc">Words are editable before sending.</div>
+                  <button class="btn btn-secondary" id="btn-copy-parent-message" style="gap:5px;">
+                    <i data-lucide="copy"></i> Copy Draft Message
+                  </button>
+                </div>
+                <div id="pending-messages-container" class="hidden" style="margin-top: 16px; border-top: 1px solid var(--border-color); padding-top: 16px;">
+                  <div style="font-weight: 600; font-size: 0.9rem; color: var(--text-secondary); margin-bottom: 8px; display: flex; align-items: center; gap: 6px;">
+                    <i data-lucide="clock" style="width: 14px; height: 14px; color: var(--warning-color);"></i>
+                    <span>Pending AI Generations</span>
+                  </div>
+                  <div id="pending-messages-list" style="display: flex; flex-direction: column; gap: 8px;"></div>
+                </div>
+                <div id="saved-messages-container" class="hidden" style="margin-top: 16px; border-top: 1px solid var(--border-color); padding-top: 16px;">
+                  <div style="font-weight: 600; font-size: 0.9rem; color: var(--text-secondary); margin-bottom: 8px; display: flex; align-items: center; gap: 6px;">
+                    <i data-lucide="message-square" style="width: 14px; height: 14px; color: var(--accent-color);"></i>
+                    <span>Completed Message Drafts</span>
+                  </div>
+                  <div id="saved-messages-list" style="display: flex; flex-direction: column; gap: 8px;"></div>
+                </div>
               </div>
             </div>
           </div>
@@ -552,65 +578,69 @@
             </div>
           </div>
 
-          <div class="dashboard-actions">
-            <!-- Left panel: Student analysis statistics -->
-            <div class="panel">
-              <div class="panel-header">
-                <h3 class="panel-title">Analyze Student profile</h3>
-              </div>
-              <div class="form-group" style="margin-bottom: 24px;">
-                <label for="reports-student-select">Select Student profile *</label>
-                <select id="reports-student-select"></select>
-              </div>
-              <div class="panel-header" style="border-bottom:none; margin-bottom: 0px; padding-bottom: 12px;">
-                <h4 style="font-size: 1rem; color: var(--text-secondary);">Indexed Academic Profile Data</h4>
-              </div>
-              <div style="display: flex; flex-direction: column; gap:16px;">
-                <div style="display: flex; justify-content: space-between; border-bottom:1px solid var(--border-color); padding-bottom:10px;">
-                  <span style="color: var(--text-secondary);">All-Subject Grading Average:</span>
-                  <span style="font-weight: 700;" id="report-grade-avg">0.0%</span>
-                </div>
-                <div style="display: flex; justify-content: space-between; border-bottom:1px solid var(--border-color); padding-bottom:10px;">
-                  <span style="color: var(--text-secondary);">Classroom Attendance Factor:</span>
-                  <span style="font-weight: 700;" id="report-attendance-rate">100.0%</span>
-                </div>
-                <div style="display: flex; justify-content: space-between; border-bottom:1px solid var(--border-color); padding-bottom:10px;">
-                  <span style="color: var(--text-secondary);">Total Logged Behavioral Incidents:</span>
-                  <span style="font-weight: 700; color:var(--error-color);" id="report-incident-count">0</span>
-                </div>
-              </div>
-              <div style="margin-top: 24px;">
-                <button class="btn btn-primary" id="btn-generate-ai-report" style="width:100%; gap:8px;">
-                  <i data-lucide="sparkles"></i> <span>Synthesize Progress Assessment (AI)</span>
-                </button>
-              </div>
-            </div>
+          <div class="universal-section-selector-container"></div>
 
-            <!-- Right panel: Synthesis results & Printing controls -->
-            <div class="panel ai-section" id="reports-output-block">
-              <div class="ai-header">
-                <i data-lucide="award" style="color: var(--accent-color);"></i>
-                <h3 class="panel-title" style="color: var(--text-primary);">Evaluated Progression Assessment</h3>
-              </div>
-              <div class="ai-editor-box" id="report-editable-content" style="min-height:280px;" contenteditable="true">Choose student details and click generate to invoke Gemini AI progression analytics.</div>
-              <div class="ai-actions">
-                <button class="btn btn-secondary" id="btn-print-report" style="gap:5px;">
-                  <i data-lucide="printer"></i> Print Report Card
-                </button>
-              </div>
-              <div id="pending-reports-container" class="hidden" style="margin-top: 16px; border-top: 1px solid var(--border-color); padding-top: 16px;">
-                <div style="font-weight: 600; font-size: 0.9rem; color: var(--text-secondary); margin-bottom: 8px; display: flex; align-items: center; gap: 6px;">
-                  <i data-lucide="clock" style="width: 14px; height: 14px; color: var(--warning-color);"></i>
-                  <span>Pending AI Generations</span>
+          <div class="module-content-wrapper">
+            <div class="dashboard-actions">
+              <!-- Left panel: Student analysis statistics -->
+              <div class="panel">
+                <div class="panel-header">
+                  <h3 class="panel-title">Analyze Student profile</h3>
                 </div>
-                <div id="pending-reports-list" style="display: flex; flex-direction: column; gap: 8px;"></div>
-              </div>
-              <div id="saved-reports-container" class="hidden" style="margin-top: 16px; border-top: 1px solid var(--border-color); padding-top: 16px;">
-                <div style="font-weight: 600; font-size: 0.9rem; color: var(--text-secondary); margin-bottom: 8px; display: flex; align-items: center; gap: 6px;">
-                  <i data-lucide="award" style="width: 14px; height: 14px; color: var(--accent-color);"></i>
-                  <span>Completed Progress Reports</span>
+                <div class="form-group" style="margin-bottom: 24px;">
+                  <label for="reports-student-select">Select Student profile *</label>
+                  <select id="reports-student-select"></select>
                 </div>
-                <div id="saved-reports-list" style="display: flex; flex-direction: column; gap: 8px;"></div>
+                <div class="panel-header" style="border-bottom:none; margin-bottom: 0px; padding-bottom: 12px;">
+                  <h4 style="font-size: 1rem; color: var(--text-secondary);">Indexed Academic Profile Data</h4>
+                </div>
+                <div style="display: flex; flex-direction: column; gap:16px;">
+                  <div style="display: flex; justify-content: space-between; border-bottom:1px solid var(--border-color); padding-bottom:10px;">
+                    <span style="color: var(--text-secondary);">All-Subject Grading Average:</span>
+                    <span style="font-weight: 700;" id="report-grade-avg">0.0%</span>
+                  </div>
+                  <div style="display: flex; justify-content: space-between; border-bottom:1px solid var(--border-color); padding-bottom:10px;">
+                    <span style="color: var(--text-secondary);">Classroom Attendance Factor:</span>
+                    <span style="font-weight: 700;" id="report-attendance-rate">100.0%</span>
+                  </div>
+                  <div style="display: flex; justify-content: space-between; border-bottom:1px solid var(--border-color); padding-bottom:10px;">
+                    <span style="color: var(--text-secondary);">Total Logged Behavioral Incidents:</span>
+                    <span style="font-weight: 700; color:var(--error-color);" id="report-incident-count">0</span>
+                  </div>
+                </div>
+                <div style="margin-top: 24px;">
+                  <button class="btn btn-primary" id="btn-generate-ai-report" style="width:100%; gap:8px;">
+                    <i data-lucide="sparkles"></i> <span>Synthesize Progress Assessment (AI)</span>
+                  </button>
+                </div>
+              </div>
+
+              <!-- Right panel: Synthesis results & Printing controls -->
+              <div class="panel ai-section" id="reports-output-block">
+                <div class="ai-header">
+                  <i data-lucide="award" style="color: var(--accent-color);"></i>
+                  <h3 class="panel-title" style="color: var(--text-primary);">Evaluated Progression Assessment</h3>
+                </div>
+                <div class="ai-editor-box" id="report-editable-content" style="min-height:280px;" contenteditable="true">Choose student details and click generate to invoke Gemini AI progression analytics.</div>
+                <div class="ai-actions">
+                  <button class="btn btn-secondary" id="btn-print-report" style="gap:5px;">
+                    <i data-lucide="printer"></i> Print Report Card
+                  </button>
+                </div>
+                <div id="pending-reports-container" class="hidden" style="margin-top: 16px; border-top: 1px solid var(--border-color); padding-top: 16px;">
+                  <div style="font-weight: 600; font-size: 0.9rem; color: var(--text-secondary); margin-bottom: 8px; display: flex; align-items: center; gap: 6px;">
+                    <i data-lucide="clock" style="width: 14px; height: 14px; color: var(--warning-color);"></i>
+                    <span>Pending AI Generations</span>
+                  </div>
+                  <div id="pending-reports-list" style="display: flex; flex-direction: column; gap: 8px;"></div>
+                </div>
+                <div id="saved-reports-container" class="hidden" style="margin-top: 16px; border-top: 1px solid var(--border-color); padding-top: 16px;">
+                  <div style="font-weight: 600; font-size: 0.9rem; color: var(--text-secondary); margin-bottom: 8px; display: flex; align-items: center; gap: 6px;">
+                    <i data-lucide="award" style="width: 14px; height: 14px; color: var(--accent-color);"></i>
+                    <span>Completed Progress Reports</span>
+                  </div>
+                  <div id="saved-reports-list" style="display: flex; flex-direction: column; gap: 8px;"></div>
+                </div>
               </div>
             </div>
           </div>
@@ -706,6 +736,23 @@
                 <button class="btn btn-danger btn-small" id="btn-wipe-database">
                   <i data-lucide="trash-2"></i> Wipe Roster Records
                 </button>
+              </div>
+            </div>
+
+            <!-- Manage Sections Panel -->
+            <div class="panel">
+              <div class="panel-header">
+                <h3 class="panel-title">Manage Sections</h3>
+              </div>
+              <div class="form-group">
+                <label>Add Classroom Section</label>
+                <div class="search-container" style="margin-bottom: 12px;">
+                  <input type="text" id="settings-section-input" placeholder="E.g. 5th Std - A..." />
+                  <button class="btn btn-secondary" id="btn-add-section">Add</button>
+                </div>
+                <div class="tag-list" id="settings-section-container">
+                  <!-- Sections lists rendered here dynamically -->
+                </div>
               </div>
             </div>
           </div>
