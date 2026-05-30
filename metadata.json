@@ -1,0 +1,6 @@
+{
+  "name": "K-12 Teacher Assistant",
+  "description": "A Progressive Web App (PWA) teacher assistant for managing students, attendance, grades, lesson planning, and parent communication offline or with AI support.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

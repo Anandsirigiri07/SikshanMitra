@@ -1,0 +1,24 @@
+{
+  "name": "K-12 Teacher Assistant",
+  "short_name": "Teacher Assistant",
+  "description": "Progressive Web App K-12 Teacher Assistant - manage attendance, grades, lesson plans, incidents, parent contact, and reports offline or with Gemini AI support.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0F1B2D",
+  "theme_color": "#162032",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "data:image/svg+xml;utf8,<svg width='192' height='192' xmlns='http://www.w3.org/2000/svg'><rect width='192' height='192' rx='40' fill='%231E2D42'/><path d='M96 45L40 75v60l56 30 56-30V75L96 45zm0 18.2l38.2 20.5L96 104.2 57.8 83.7 96 63.2zm-38 31.3l38 20.4v40.8l-38-20.4V94.5zm76 40.8l-38 20.4V114.9l38-20.4v40.8z' fill='%23F5A623'/></svg>",
+      "sizes": "192x192",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "data:image/svg+xml;utf8,<svg width='512' height='512' xmlns='http://www.w3.org/2000/svg'><rect width='512' height='512' rx='100' fill='%231E2D42'/><path d='M256 120L100 200v160l156 80 156-80V200L256 120zm0 48.5l106.8 54.7L256 278l-106.8-54.8L256 168.5zm-106 85.3l106 54.4v108.8l-106-54.4V253.8zm212 108.8l-106 54.4V308.2l106-54.4v108.8z' fill='%23F5A623'/></svg>",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
