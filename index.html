@@ -58,6 +58,10 @@
             <i data-lucide="users"></i>
             <span>Students</span>
           </button>
+          <button class="menu-item" data-target="teachers" id="nav-teachers">
+            <i data-lucide="graduation-cap"></i>
+            <span data-i18n-key="Teachers">Teachers</span>
+          </button>
           <button class="menu-item" data-target="attendance" id="nav-attendance">
             <i data-lucide="calendar"></i>
             <span>Attendance</span>
@@ -189,10 +193,13 @@
         <section id="module-attendance" class="module-section hidden">
           <div class="page-header">
             <div>
-              <h1 class="page-title">Attendance Tracker</h1>
-              <p class="page-title-desc">Securely check off student present status (Saved locally)</p>
+              <h1 class="page-title" id="attendance-title-text">Attendance Tracker</h1>
+              <div style="display: flex; gap: 8px; margin-top: 8px;">
+                <button class="btn btn-small btn-primary" id="btn-attendance-type-student">Student Attendance</button>
+                <button class="btn btn-small btn-secondary" id="btn-attendance-type-teacher">Teacher Attendance</button>
+              </div>
             </div>
-            <div style="display: flex; gap: 12px; flex-wrap: wrap;">
+            <div style="display: flex; gap: 12px; flex-wrap: wrap; align-items: center;">
               <button class="btn btn-primary active" id="btn-view-daily-attendance">Daily Register</button>
               <button class="btn btn-secondary" id="btn-view-attendance-history">Attendance History</button>
             </div>
@@ -341,6 +348,66 @@
 
             <div class="student-grid" id="student-roster-grid">
               <!-- Dynamic profile cards -->
+            </div>
+          </div>
+        </section>
+
+        <!-- MODULE 2b: TEACHERS -->
+        <section id="module-teachers" class="module-section hidden">
+          <div class="page-header">
+            <div>
+              <h1 class="page-title">Teachers Directory</h1>
+              <p class="page-title-desc">Track demographics, credentials, departments & roles</p>
+            </div>
+            <button class="btn btn-primary" id="btn-show-add-teacher">
+              <i data-lucide="user-plus"></i> Add New Teacher
+            </button>
+          </div>
+
+          <div class="module-content-wrapper">
+            <!-- Add / Edit Teacher Drawer Panel -->
+            <div class="panel hidden" id="teacher-form-panel" style="margin-bottom: 24px;">
+              <h3 class="panel-title" id="teacher-form-title" style="margin-bottom: 20px;">Register New Teacher Profile</h3>
+              <form id="teacher-entry-form">
+                <input type="hidden" id="teacher-idx" />
+                <div class="form-row">
+                  <div class="form-group">
+                    <label for="teacher-name">Full Teacher Name *</label>
+                    <input type="text" id="teacher-name" required placeholder="E.g. Mr. Robert Smith" />
+                  </div>
+                  <div class="form-group">
+                    <label for="teacher-code">Teacher Code / ID *</label>
+                    <input type="text" id="teacher-code" required placeholder="E.g. T-502" />
+                  </div>
+                </div>
+                <div class="form-row">
+                  <div class="form-group">
+                    <label for="teacher-contact">Primary Contact (Email/Phone) *</label>
+                    <input type="text" id="teacher-contact" required placeholder="E.g. robert@school.com" />
+                  </div>
+                  <div class="form-group">
+                    <label for="teacher-dept">Department / Subject *</label>
+                    <input type="text" id="teacher-dept" required placeholder="E.g. Mathematics" />
+                  </div>
+                </div>
+                <div class="form-group">
+                  <label for="teacher-notes">Specialization / Notes</label>
+                  <textarea id="teacher-notes" rows="2" placeholder="E.g. Senior Calculus Instructor. Homeroom teacher for Section A."></textarea>
+                </div>
+                <div style="display: flex; gap: 12px; justify-content: flex-end;">
+                  <button type="button" class="btn btn-secondary" id="btn-cancel-teacher">Cancel</button>
+                  <button type="submit" class="btn btn-primary">Save Teacher</button>
+                </div>
+              </form>
+            </div>
+
+            <!-- Live search -->
+            <div class="search-container">
+              <input type="text" id="teacher-search-bar" placeholder="🔍 Instant search by teacher name, ID, or department..." />
+            </div>
+
+            <div class="student-grid" id="teacher-roster-grid">
+              <!-- Dynamic teacher cards -->
             </div>
           </div>
         </section>

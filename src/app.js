@@ -13,11 +13,13 @@ const state = {
   isOffline: !navigator.onLine,
   settings: {},
   students: [],
+  teachers: [],
   sections: [],
   activeSectionId: '',
   selectedSubject: '',
   selectedStudentId: null,
-  activeDate: new Date().toISOString().split('T')[0]
+  activeDate: new Date().toISOString().split('T')[0],
+  attendanceType: 'student'
 };
 
 // ----------------------------------------------------
@@ -149,7 +151,13 @@ async function initApp() {
   state.settings = db.getSettings();
   try {
     state.sections = await db.getSections();
-    if (state.sections.length > 0) {
+    // Auto-create a default section using the onboarding class name if none exists
+    if (state.sections.length === 0 && state.settings.className) {
+      const defaultSec = await db.saveSection({ name: state.settings.className });
+      state.sections = [defaultSec];
+      state.activeSectionId = defaultSec.id;
+      localStorage.setItem('activeSectionId', state.activeSectionId);
+    } else if (state.sections.length > 0) {
       const storedSec = localStorage.getItem('activeSectionId');
       if (storedSec && state.sections.some(s => s.id === storedSec)) {
         state.activeSectionId = storedSec;
@@ -170,6 +178,13 @@ async function initApp() {
   } catch (err) {
     console.error('Error getting student roster:', err);
     state.students = [];
+  }
+
+  try {
+    state.teachers = await db.getTeachers();
+  } catch (err) {
+    console.error('Error getting teacher roster:', err);
+    state.teachers = [];
   }
   
   // Set default subject if settings has subjects list
@@ -346,13 +361,16 @@ async function renderActiveModule() {
 
   // Inject and render the universal section selector if applicable
   const sectionScopedModules = ['dashboard', 'students', 'attendance', 'grades', 'messages', 'reports'];
-  if (sectionScopedModules.includes(state.activeModule)) {
+  if (sectionScopedModules.includes(state.activeModule) && !(state.activeModule === 'attendance' && state.attendanceType === 'teacher')) {
     renderUniversalSectionSelector(state.activeModule);
     if (state.sections.length === 0) {
       translatePage();
       if (window.lucide) window.lucide.createIcons();
       return;
     }
+  } else if (state.activeModule === 'attendance' && state.attendanceType === 'teacher') {
+    const container = document.querySelector(`#module-attendance .universal-section-selector-container`);
+    if (container) container.innerHTML = '';
   }
 
   // Refresh data indices based on mounted module screen
@@ -362,6 +380,9 @@ async function renderActiveModule() {
       break;
     case 'students':
       renderStudents();
+      break;
+    case 'teachers':
+      renderTeachers();
       break;
     case 'attendance':
       await renderAttendance();
@@ -402,7 +423,7 @@ function setupEventBindings() {
   // 1. Onboarding configuration handler
   const onboardingForm = document.getElementById('onboarding-form');
   if (onboardingForm) {
-    onboardingForm.addEventListener('submit', (e) => {
+    onboardingForm.addEventListener('submit', async (e) => {
       e.preventDefault();
       try {
         const teacherName = document.getElementById('onboarding-teacher-name').value;
@@ -421,6 +442,12 @@ function setupEventBindings() {
 
         db.saveSettings(record);
         state.settings = record;
+        
+        // Auto-create a default section using the onboarding class name
+        const defaultSec = await db.saveSection({ name: className });
+        state.sections = await db.getSections();
+        state.activeSectionId = defaultSec.id;
+        localStorage.setItem('activeSectionId', state.activeSectionId);
         
         // Hide onboarding modal, trigger renders
         document.getElementById('first-load-overlay').classList.add('hidden');
@@ -506,6 +533,111 @@ function setupEventBindings() {
     });
   }
 
+  // 2b. New Teacher Form Drawer toggle triggers
+  const btnShowAddTeacher = document.getElementById('btn-show-add-teacher');
+  const teacherFormPanel = document.getElementById('teacher-form-panel');
+  if (btnShowAddTeacher && teacherFormPanel) {
+    btnShowAddTeacher.addEventListener('click', () => {
+      document.getElementById('teacher-entry-form').reset();
+      document.getElementById('teacher-idx').value = '';
+      document.getElementById('teacher-form-title').innerText = 'Register New Teacher Profile';
+      teacherFormPanel.classList.remove('hidden');
+      teacherFormPanel.scrollIntoView({ behavior: 'smooth' });
+    });
+  }
+
+  const btnCancelTeacher = document.getElementById('btn-cancel-teacher');
+  if (btnCancelTeacher && teacherFormPanel) {
+    btnCancelTeacher.addEventListener('click', () => {
+      teacherFormPanel.classList.add('hidden');
+    });
+  }
+
+  // Save teacher profile submit trigger
+  const teacherEntryForm = document.getElementById('teacher-entry-form');
+  if (teacherEntryForm) {
+    teacherEntryForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      try {
+        const id = document.getElementById('teacher-idx').value || null;
+        const name = document.getElementById('teacher-name').value;
+        const code = document.getElementById('teacher-code').value;
+        const contact = document.getElementById('teacher-contact').value;
+        const dept = document.getElementById('teacher-dept').value;
+        const notes = document.getElementById('teacher-notes').value;
+
+        await db.saveTeacher({ id, name, code, contact, dept, notes });
+        state.teachers = await db.getTeachers(); // re-sync roster
+        
+        teacherFormPanel.classList.add('hidden');
+        renderTeachers();
+        showToast(`Teacher profile for "${name}" saved successfully.`, 'success');
+      } catch (err) {
+        showToast(err.message, 'error');
+      }
+    });
+  }
+
+  // Live Teacher filter query search bar
+  const teacherSearchBar = document.getElementById('teacher-search-bar');
+  if (teacherSearchBar) {
+    teacherSearchBar.addEventListener('input', (e) => {
+      const q = e.target.value.toLowerCase().trim();
+      const cards = document.querySelectorAll('#teacher-roster-grid .card');
+      cards.forEach(card => {
+        const searchableText = card.innerText.toLowerCase();
+        if (searchableText.includes(q)) {
+          card.classList.remove('hidden');
+        } else {
+          card.classList.add('hidden');
+        }
+      });
+    });
+  }
+
+  // Attendance Type Toggle (Student vs Teacher)
+  const btnTypeStudent = document.getElementById('btn-attendance-type-student');
+  const btnTypeTeacher = document.getElementById('btn-attendance-type-teacher');
+
+  if (btnTypeStudent && btnTypeTeacher) {
+    btnTypeStudent.addEventListener('click', async () => {
+      state.attendanceType = 'student';
+      btnTypeStudent.classList.add('active', 'btn-primary');
+      btnTypeStudent.classList.remove('btn-secondary');
+      btnTypeTeacher.classList.add('btn-secondary');
+      btnTypeTeacher.classList.remove('active', 'btn-primary');
+
+      // Re-render universal section selector & active module register
+      renderUniversalSectionSelector('attendance');
+      
+      const btnViewDaily = document.getElementById('btn-view-daily-attendance');
+      if (btnViewDaily && btnViewDaily.classList.contains('active')) {
+        await renderAttendance();
+      } else {
+        await renderAttendanceHistory();
+      }
+    });
+
+    btnTypeTeacher.addEventListener('click', async () => {
+      state.attendanceType = 'teacher';
+      btnTypeTeacher.classList.add('active', 'btn-primary');
+      btnTypeTeacher.classList.remove('btn-secondary');
+      btnTypeStudent.classList.add('btn-secondary');
+      btnTypeStudent.classList.remove('active', 'btn-primary');
+
+      // Clear section selector since teachers are school-wide
+      const container = document.querySelector('#module-attendance .universal-section-selector-container');
+      if (container) container.innerHTML = '';
+
+      const btnViewDaily = document.getElementById('btn-view-daily-attendance');
+      if (btnViewDaily && btnViewDaily.classList.contains('active')) {
+        await renderAttendance();
+      } else {
+        await renderAttendanceHistory();
+      }
+    });
+  }
+
   // Attendance Tracker Tab Controls
   const btnViewDaily = document.getElementById('btn-view-daily-attendance');
   const btnViewHistory = document.getElementById('btn-view-attendance-history');
@@ -550,151 +682,295 @@ function setupEventBindings() {
   const btnPrintAttendance = document.getElementById('btn-print-attendance');
   if (btnPrintAttendance) {
     btnPrintAttendance.addEventListener('click', async () => {
-      const sectionStudents = getStudentsBySection(state.activeSectionId);
-      if (sectionStudents.length === 0) {
-        showToast('No students registered in this section to print.', 'error');
-        return;
-      }
-
-      const activeSection = state.sections.find(s => s.id === state.activeSectionId);
-      const sectionName = activeSection ? activeSection.name : 'Unknown Section';
-      const marksMap = await db.getAttendance(state.activeDate, state.activeSectionId);
-
-      const dateObj = new Date(state.activeDate + 'T00:00:00');
-      const formattedDate = dateObj.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
-
-      let presentCount = 0, absentCount = 0, lateCount = 0;
-      let rowsHtml = '';
-
-      sectionStudents.forEach(student => {
-        const status = marksMap[student.id] || '';
-        let displayStatus = 'Unmarked';
-        let statusClass = '';
-
-        if (status === 'present') {
-          presentCount++;
-          displayStatus = 'Present';
-          statusClass = 'status-present';
-        } else if (status === 'absent') {
-          absentCount++;
-          displayStatus = 'Absent';
-          statusClass = 'status-absent';
-        } else if (status === 'late') {
-          lateCount++;
-          displayStatus = 'Late';
-          statusClass = 'status-late';
+      if (state.attendanceType === 'teacher') {
+        if (state.teachers.length === 0) {
+          showToast('No teachers registered to print.', 'error');
+          return;
         }
 
-        rowsHtml += `
-          <tr>
-            <td>${student.roll || ''}</td>
-            <td><strong>${student.name}</strong></td>
-            <td>${student.isIEP ? 'IEP' : 'General'}</td>
-            <td class="${statusClass}">${displayStatus}</td>
-            <td>${student.parentContact || ''}</td>
-            <td style="width: 150px;"></td>
-          </tr>
-        `;
-      });
+        const marksMap = await db.getTeacherAttendance(state.activeDate);
+        const dateObj = new Date(state.activeDate + 'T00:00:00');
+        const formattedDate = dateObj.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
 
-      const printWindow = window.open('', '_blank', 'width=900,height=700');
-      if (!printWindow) {
-        showToast('Print popup blocked by browser. Please allow popups for this page.', 'error');
-        return;
+        let presentCount = 0, absentCount = 0, lateCount = 0;
+        let rowsHtml = '';
+
+        state.teachers.forEach(teacher => {
+          const status = marksMap[teacher.id] || '';
+          let displayStatus = 'Unmarked';
+          let statusClass = '';
+
+          if (status === 'present') {
+            presentCount++;
+            displayStatus = 'Present';
+            statusClass = 'status-present';
+          } else if (status === 'absent') {
+            absentCount++;
+            displayStatus = 'Absent';
+            statusClass = 'status-absent';
+          } else if (status === 'late') {
+            lateCount++;
+            displayStatus = 'Late';
+            statusClass = 'status-late';
+          }
+
+          rowsHtml += `
+            <tr>
+              <td>${teacher.code || ''}</td>
+              <td><strong>${teacher.name}</strong></td>
+              <td>${teacher.dept || ''}</td>
+              <td class="${statusClass}">${displayStatus}</td>
+              <td>${teacher.contact || ''}</td>
+              <td style="width: 150px;"></td>
+            </tr>
+          `;
+        });
+
+        const printWindow = window.open('', '_blank', 'width=900,height=700');
+        if (!printWindow) {
+          showToast('Print popup blocked by browser. Please allow popups for this page.', 'error');
+          return;
+        }
+
+        printWindow.document.write(`
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <title>Teacher Attendance Register</title>
+            <style>
+              body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; color: #000; padding: 30px; margin: 0; line-height: 1.4; }
+              .header { text-align: center; margin-bottom: 25px; border-bottom: 2px double #333; padding-bottom: 15px; }
+              .header h1 { margin: 0 0 5px 0; font-size: 22px; text-transform: uppercase; letter-spacing: 0.5px; }
+              .header p { margin: 0; font-size: 13px; color: #555; }
+              .meta-section { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 20px; font-size: 13px; background: #f8f9fa; padding: 12px 18px; border-radius: 6px; border: 1px solid #ddd; }
+              .meta-item { display: flex; gap: 8px; }
+              .meta-label { font-weight: bold; color: #444; width: 110px; }
+              .stats-bar { display: flex; gap: 15px; margin-bottom: 15px; font-size: 12px; font-weight: 600; text-transform: uppercase; }
+              .stat-badge { padding: 3px 8px; border-radius: 4px; border: 1px solid #ccc; }
+              .stat-present { background-color: #e2f0d9; border-color: #385723; color: #385723; }
+              .stat-absent { background-color: #fce4d6; border-color: #c65911; color: #c65911; }
+              .stat-late { background-color: #fff2cc; border-color: #833c0c; color: #833c0c; }
+              .roster-table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+              .roster-table th, .roster-table td { border: 1px solid #aaa; padding: 6px 10px; text-align: left; font-size: 12px; }
+              .roster-table th { background-color: #f1f3f5; font-weight: bold; text-transform: uppercase; font-size: 11px; color: #333; }
+              .status-present { font-weight: 600; color: #2e7d32; }
+              .status-absent { font-weight: 600; color: #c62828; text-decoration: underline; }
+              .status-late { font-weight: 600; color: #ef6c00; }
+              .footer { margin-top: 60px; display: flex; justify-content: space-between; font-size: 12px; }
+              .signature-box { border-top: 1px dashed #000; width: 220px; text-align: center; padding-top: 6px; }
+              @media print {
+                body { padding: 0; }
+                .meta-section { background: none; border: 1px solid #000; }
+                .stat-badge { border: 1px solid #000; background: none; color: #000; }
+              }
+            </style>
+          </head>
+          <body>
+            <div class="header">
+              <h1>SikshanMitra Teacher Attendance Register</h1>
+              <p>Official School Faculty Attendance Ledger</p>
+            </div>
+
+            <div class="meta-section">
+              <div>
+                <div class="meta-item"><span class="meta-label">Register Type:</span><span>Staff Faculty Roster</span></div>
+                <div class="meta-item"><span class="meta-label">Authorizer:</span><span>${state.settings.name || 'Not Specified'}</span></div>
+              </div>
+              <div>
+                <div class="meta-item"><span class="meta-label">Date File:</span><span>${formattedDate}</span></div>
+                <div class="meta-item"><span class="meta-label">School:</span><span>${state.settings.school || 'Not Specified'}</span></div>
+              </div>
+            </div>
+
+            <div class="stats-bar">
+              <span class="stat-badge">Total Faculty: ${state.teachers.length}</span>
+              <span class="stat-badge stat-present">Present: ${presentCount}</span>
+              <span class="stat-badge stat-absent">Absent: ${absentCount}</span>
+              <span class="stat-badge stat-late">Late: ${lateCount}</span>
+            </div>
+
+            <table class="roster-table">
+              <thead>
+                <tr>
+                  <th style="width: 80px;">Teacher Code</th>
+                  <th>Teacher Name</th>
+                  <th>Department / Subject</th>
+                  <th style="width: 100px;">Status</th>
+                  <th style="width: 180px;">Contact Info</th>
+                  <th>Faculty Signature / Notes</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${rowsHtml}
+              </tbody>
+            </table>
+
+            <div class="footer">
+              <div>
+                <p style="margin: 0; font-size: 10px; color: #777;">Generated via SikshanMitra PWA Workspace • Local Time: ${new Date().toLocaleString()}</p>
+              </div>
+              <div class="signature-box" style="margin-top: 20px;">
+                <strong>School Principal / Authorizer Signature</strong>
+              </div>
+            </div>
+
+            <script>
+              window.onload = function() {
+                window.print();
+                setTimeout(function() { window.close(); }, 500);
+              };
+            </script>
+          </body>
+          </html>
+        `);
+        printWindow.document.close();
+      } else {
+        const sectionStudents = getStudentsBySection(state.activeSectionId);
+        if (sectionStudents.length === 0) {
+          showToast('No students registered in this section to print.', 'error');
+          return;
+        }
+
+        const activeSection = state.sections.find(s => s.id === state.activeSectionId);
+        const sectionName = activeSection ? activeSection.name : 'Unknown Section';
+        const marksMap = await db.getAttendance(state.activeDate, state.activeSectionId);
+
+        const dateObj = new Date(state.activeDate + 'T00:00:00');
+        const formattedDate = dateObj.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+
+        let presentCount = 0, absentCount = 0, lateCount = 0;
+        let rowsHtml = '';
+
+        sectionStudents.forEach(student => {
+          const status = marksMap[student.id] || '';
+          let displayStatus = 'Unmarked';
+          let statusClass = '';
+
+          if (status === 'present') {
+            presentCount++;
+            displayStatus = 'Present';
+            statusClass = 'status-present';
+          } else if (status === 'absent') {
+            absentCount++;
+            displayStatus = 'Absent';
+            statusClass = 'status-absent';
+          } else if (status === 'late') {
+            lateCount++;
+            displayStatus = 'Late';
+            statusClass = 'status-late';
+          }
+
+          rowsHtml += `
+            <tr>
+              <td>${student.roll || ''}</td>
+              <td><strong>${student.name}</strong></td>
+              <td>${student.isIEP ? 'IEP' : 'General'}</td>
+              <td class="${statusClass}">${displayStatus}</td>
+              <td>${student.parentContact || ''}</td>
+              <td style="width: 150px;"></td>
+            </tr>
+          `;
+        });
+
+        const printWindow = window.open('', '_blank', 'width=900,height=700');
+        if (!printWindow) {
+          showToast('Print popup blocked by browser. Please allow popups for this page.', 'error');
+          return;
+        }
+
+        printWindow.document.write(`
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <title>Attendance Register - ${sectionName}</title>
+            <style>
+              body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; color: #000; padding: 30px; margin: 0; line-height: 1.4; }
+              .header { text-align: center; margin-bottom: 25px; border-bottom: 2px double #333; padding-bottom: 15px; }
+              .header h1 { margin: 0 0 5px 0; font-size: 22px; text-transform: uppercase; letter-spacing: 0.5px; }
+              .header p { margin: 0; font-size: 13px; color: #555; }
+              .meta-section { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 20px; font-size: 13px; background: #f8f9fa; padding: 12px 18px; border-radius: 6px; border: 1px solid #ddd; }
+              .meta-item { display: flex; gap: 8px; }
+              .meta-label { font-weight: bold; color: #444; width: 110px; }
+              .stats-bar { display: flex; gap: 15px; margin-bottom: 15px; font-size: 12px; font-weight: 600; text-transform: uppercase; }
+              .stat-badge { padding: 3px 8px; border-radius: 4px; border: 1px solid #ccc; }
+              .stat-present { background-color: #e2f0d9; border-color: #385723; color: #385723; }
+              .stat-absent { background-color: #fce4d6; border-color: #c65911; color: #c65911; }
+              .stat-late { background-color: #fff2cc; border-color: #833c0c; color: #833c0c; }
+              .roster-table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+              .roster-table th, .roster-table td { border: 1px solid #aaa; padding: 6px 10px; text-align: left; font-size: 12px; }
+              .roster-table th { background-color: #f1f3f5; font-weight: bold; text-transform: uppercase; font-size: 11px; color: #333; }
+              .status-present { font-weight: 600; color: #2e7d32; }
+              .status-absent { font-weight: 600; color: #c62828; text-decoration: underline; }
+              .status-late { font-weight: 600; color: #ef6c00; }
+              .footer { margin-top: 60px; display: flex; justify-content: space-between; font-size: 12px; }
+              .signature-box { border-top: 1px dashed #000; width: 220px; text-align: center; padding-top: 6px; }
+              @media print {
+                body { padding: 0; }
+                .meta-section { background: none; border: 1px solid #000; }
+                .stat-badge { border: 1px solid #000; background: none; color: #000; }
+              }
+            </style>
+          </head>
+          <body>
+            <div class="header">
+              <h1>SikshanMitra Attendance Register</h1>
+              <p>Official Analog Roster Report File & Classroom Verification Ledger</p>
+            </div>
+
+            <div class="meta-section">
+              <div>
+                <div class="meta-item"><span class="meta-label">Class/Section:</span><span>${sectionName}</span></div>
+                <div class="meta-item"><span class="meta-label">Teacher:</span><span>${state.settings.name || 'Not Specified'}</span></div>
+              </div>
+              <div>
+                <div class="meta-item"><span class="meta-label">Date File:</span><span>${formattedDate}</span></div>
+                <div class="meta-item"><span class="meta-label">School:</span><span>${state.settings.school || 'Not Specified'}</span></div>
+              </div>
+            </div>
+
+            <div class="stats-bar">
+              <span class="stat-badge">Total Roster: ${sectionStudents.length}</span>
+              <span class="stat-badge stat-present">Present: ${presentCount}</span>
+              <span class="stat-badge stat-absent">Absent: ${absentCount}</span>
+              <span class="stat-badge stat-late">Late: ${lateCount}</span>
+            </div>
+
+            <table class="roster-table">
+              <thead>
+                <tr>
+                  <th style="width: 80px;">Roll No</th>
+                  <th>Student Name</th>
+                  <th style="width: 90px;">Category</th>
+                  <th style="width: 100px;">Status</th>
+                  <th style="width: 130px;">Parent Contact</th>
+                  <th>Teacher Notes / Physical Signature</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${rowsHtml}
+              </tbody>
+            </table>
+
+            <div class="footer">
+              <div>
+                <p style="margin: 0; font-size: 10px; color: #777;">Generated via SikshanMitra PWA Workspace • Local Time: ${new Date().toLocaleString()}</p>
+              </div>
+              <div class="signature-box" style="margin-top: 20px;">
+                <strong>Classroom Instructor Signature</strong>
+              </div>
+            </div>
+
+            <script>
+              window.onload = function() {
+                window.print();
+                setTimeout(function() { window.close(); }, 500);
+              };
+            </script>
+          </body>
+          </html>
+        `);
+        printWindow.document.close();
       }
-
-      printWindow.document.write(`
-        <!DOCTYPE html>
-        <html>
-        <head>
-          <title>Attendance Register - ${sectionName}</title>
-          <style>
-            body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; color: #000; padding: 30px; margin: 0; line-height: 1.4; }
-            .header { text-align: center; margin-bottom: 25px; border-bottom: 2px double #333; padding-bottom: 15px; }
-            .header h1 { margin: 0 0 5px 0; font-size: 22px; text-transform: uppercase; letter-spacing: 0.5px; }
-            .header p { margin: 0; font-size: 13px; color: #555; }
-            .meta-section { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 20px; font-size: 13px; background: #f8f9fa; padding: 12px 18px; border-radius: 6px; border: 1px solid #ddd; }
-            .meta-item { display: flex; gap: 8px; }
-            .meta-label { font-weight: bold; color: #444; width: 110px; }
-            .stats-bar { display: flex; gap: 15px; margin-bottom: 15px; font-size: 12px; font-weight: 600; text-transform: uppercase; }
-            .stat-badge { padding: 3px 8px; border-radius: 4px; border: 1px solid #ccc; }
-            .stat-present { background-color: #e2f0d9; border-color: #385723; color: #385723; }
-            .stat-absent { background-color: #fce4d6; border-color: #c65911; color: #c65911; }
-            .stat-late { background-color: #fff2cc; border-color: #833c0c; color: #833c0c; }
-            .roster-table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-            .roster-table th, .roster-table td { border: 1px solid #aaa; padding: 6px 10px; text-align: left; font-size: 12px; }
-            .roster-table th { background-color: #f1f3f5; font-weight: bold; text-transform: uppercase; font-size: 11px; color: #333; }
-            .status-present { font-weight: 600; color: #2e7d32; }
-            .status-absent { font-weight: 600; color: #c62828; text-decoration: underline; }
-            .status-late { font-weight: 600; color: #ef6c00; }
-            .footer { margin-top: 60px; display: flex; justify-content: space-between; font-size: 12px; }
-            .signature-box { border-top: 1px dashed #000; width: 220px; text-align: center; padding-top: 6px; }
-            @media print {
-              body { padding: 0; }
-              .meta-section { background: none; border: 1px solid #000; }
-              .stat-badge { border: 1px solid #000; background: none; color: #000; }
-            }
-          </style>
-        </head>
-        <body>
-          <div class="header">
-            <h1>SikshanMitra Attendance Register</h1>
-            <p>Official Analog Roster Report File & Classroom Verification Ledger</p>
-          </div>
-
-          <div class="meta-section">
-            <div>
-              <div class="meta-item"><span class="meta-label">Class/Section:</span><span>${sectionName}</span></div>
-              <div class="meta-item"><span class="meta-label">Teacher:</span><span>${state.settings.name || 'Not Specified'}</span></div>
-            </div>
-            <div>
-              <div class="meta-item"><span class="meta-label">Date File:</span><span>${formattedDate}</span></div>
-              <div class="meta-item"><span class="meta-label">School:</span><span>${state.settings.school || 'Not Specified'}</span></div>
-            </div>
-          </div>
-
-          <div class="stats-bar">
-            <span class="stat-badge">Total Roster: ${sectionStudents.length}</span>
-            <span class="stat-badge stat-present">Present: ${presentCount}</span>
-            <span class="stat-badge stat-absent">Absent: ${absentCount}</span>
-            <span class="stat-badge stat-late">Late: ${lateCount}</span>
-          </div>
-
-          <table class="roster-table">
-            <thead>
-              <tr>
-                <th style="width: 80px;">Roll No</th>
-                <th>Student Name</th>
-                <th style="width: 90px;">Category</th>
-                <th style="width: 100px;">Status</th>
-                <th style="width: 130px;">Parent Contact</th>
-                <th>Teacher Notes / Physical Signature</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${rowsHtml}
-            </tbody>
-          </table>
-
-          <div class="footer">
-            <div>
-              <p style="margin: 0; font-size: 10px; color: #777;">Generated via SikshanMitra PWA Workspace • Local Time: ${new Date().toLocaleString()}</p>
-            </div>
-            <div class="signature-box" style="margin-top: 20px;">
-              <strong>Classroom Instructor Signature</strong>
-            </div>
-          </div>
-
-          <script>
-            window.onload = function() {
-              window.print();
-              setTimeout(function() { window.close(); }, 500);
-            };
-          </script>
-        </body>
-        </html>
-      `);
-      printWindow.document.close();
     });
   }
 
@@ -1552,6 +1828,90 @@ function renderStudents() {
   if (window.lucide) window.lucide.createIcons();
 }
 
+// Render dynamic teacher profiles cards
+function renderTeachers() {
+  const container = document.getElementById('teacher-roster-grid');
+  if (!container) return;
+
+  container.innerHTML = '';
+
+  if (state.teachers.length === 0) {
+    container.innerHTML = `
+      <div class="panel" style="grid-column: 1 / -1; text-align: center; color: var(--text-secondary); padding: 48px;">
+        <i data-lucide="graduation-cap" style="width: 48px; height: 48px; margin: 0 auto 16px auto; opacity: 0.5;"></i>
+        <p>No teacher profiles registered yet.</p>
+        <p style="font-size: 0.85rem; margin-top: 8px;">Tap "Add New Teacher" above to register new profiles.</p>
+      </div>
+    `;
+    if (window.lucide) window.lucide.createIcons();
+    return;
+  }
+
+  state.teachers.forEach(teacher => {
+    const card = document.createElement('div');
+    card.className = 'card';
+    card.id = `teacher-${teacher.id}`;
+
+    card.innerHTML = `
+      <div style="font-size: 0.8rem; color:var(--text-secondary); font-family:var(--font-mono); font-weight:600;">ID: ${teacher.code}</div>
+      <h3 style="font-size: 1.25rem;" class="teacher-info-name">${teacher.name}</h3>
+      <div class="iep-badge" style="background: rgba(30, 215, 96, 0.1); color: var(--success-color); border: 1px solid rgba(30, 215, 96, 0.2);">
+        <i data-lucide="book-open" style="width: 12px; height: 12px; margin-right:4px;"></i> Dept: ${teacher.dept}
+      </div>
+      
+      <div style="display:flex; flex-direction:column; gap:8px; margin-top:14px; font-size: 0.85rem; color:var(--text-secondary);">
+        <div style="display:flex; align-items:center; gap:6px;">
+          <i data-lucide="mail" style="width: 14px; height: 14px; flex-shrink:0;"></i>
+          <span>${teacher.contact}</span>
+        </div>
+        <div style="display:flex; align-items:flex-start; gap:6px;">
+          <i data-lucide="file-text" style="width: 14px; height: 14px; margin-top: 3px; flex-shrink:0;"></i>
+          <span style="font-style: italic;">${teacher.notes || 'No notes appended.'}</span>
+        </div>
+      </div>
+
+      <div class="student-card-actions">
+        <button class="btn btn-secondary btn-small edit-teacher-btn" data-id="${teacher.id}" style="padding: 4px 10px;">Edit</button>
+        <button class="btn btn-danger btn-small delete-teacher-btn" data-id="${teacher.id}" style="padding: 4px 10px;">Remove</button>
+      </div>
+    `;
+    container.appendChild(card);
+  });
+
+  // Attach actions listeners inside cards
+  document.querySelectorAll('.edit-teacher-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      const matchTch = state.teachers.find(t => t.id === btn.dataset.id);
+      if (matchTch) {
+        document.getElementById('teacher-idx').value = matchTch.id;
+        document.getElementById('teacher-name').value = matchTch.name;
+        document.getElementById('teacher-code').value = matchTch.code;
+        document.getElementById('teacher-contact').value = matchTch.contact;
+        document.getElementById('teacher-dept').value = matchTch.dept;
+        document.getElementById('teacher-notes').value = matchTch.notes || '';
+        
+        document.getElementById('teacher-form-title').innerText = `Edit Profile: ${matchTch.name}`;
+        document.getElementById('teacher-form-panel').classList.remove('hidden');
+        document.getElementById('teacher-form-panel').scrollIntoView({ behavior: 'smooth' });
+      }
+    });
+  });
+
+  document.querySelectorAll('.delete-teacher-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const name = state.teachers.find(t => t.id === btn.dataset.id)?.name || 'teacher';
+      if (confirm(`Confirm removing teacher profile for "${name}"? Attendance logs for this teacher will be dereferenced.`)) {
+        await db.deleteTeacher(btn.dataset.id);
+        state.teachers = await db.getTeachers();
+        renderTeachers();
+        showToast(`Profile data for "${name}" deleted.`, 'error');
+      }
+    });
+  });
+
+  if (window.lucide) window.lucide.createIcons();
+}
+
 // Render Attendance register list
 async function renderAttendance() {
   const container = document.getElementById('attendance-roster-list');
@@ -1566,83 +1926,155 @@ async function renderAttendance() {
     dateHeading.innerText = `Roster Verification File for ${formattedDayText}`;
   }
 
-  const sectionStudents = getStudentsBySection(state.activeSectionId);
+  if (state.attendanceType === 'teacher') {
+    if (state.teachers.length === 0) {
+      container.innerHTML = `
+        <div class="panel" style="text-align: center; color: var(--text-secondary); padding: 48px;">
+          <i data-lucide="graduation-cap" style="width: 48px; height: 48px; margin: 0 auto 16px auto; opacity: 0.5;"></i>
+          <p>Your teachers registry holds 0 teachers. Active profiles are required to check attendance.</p>
+        </div>
+      `;
+      if (window.lucide) window.lucide.createIcons();
+      return;
+    }
 
-  if (sectionStudents.length === 0) {
-    container.innerHTML = `
-      <div class="panel" style="text-align: center; color: var(--text-secondary); padding: 48px;">
-        <i data-lucide="user-x" style="width: 48px; height: 48px; margin: 0 auto 16px auto; opacity: 0.5;"></i>
-        <p>Your class registry holds 0 students in this section. Active profiles are required to check attendance.</p>
-      </div>
-    `;
+    const marksMap = await db.getTeacherAttendance(state.activeDate);
+    let presentC = 0, absentC = 0, lateC = 0;
+
+    state.teachers.forEach(teacher => {
+      const status = marksMap[teacher.id] || '';
+      if (status === 'present') presentC++;
+      else if (status === 'absent') absentC++;
+      else if (status === 'late') lateC++;
+
+      const item = document.createElement('div');
+      item.className = 'attendance-item';
+      item.innerHTML = `
+        <div class="student-info-main">
+          <div class="student-info-name">${teacher.name}</div>
+          <div class="student-info-meta">Code ID: ${teacher.code} • Department: ${teacher.dept}</div>
+        </div>
+        <div class="attendance-controls">
+          <button class="btn-toggle toggle-pres ${status === 'present' ? 'active-present' : ''}" data-id="${teacher.id}">Present</button>
+          <button class="btn-toggle toggle-abs  ${status === 'absent' ? 'active-absent' : ''}" data-id="${teacher.id}">Absent</button>
+          <button class="btn-toggle toggle-late ${status === 'late' ? 'active-late' : ''}" data-id="${teacher.id}">Late</button>
+        </div>
+      `;
+      container.appendChild(item);
+    });
+
+    // Render stats badges
+    document.getElementById('att-stats-present').innerText = presentC;
+    document.getElementById('att-stats-absent').innerText = absentC;
+    document.getElementById('att-stats-late').innerText = lateC;
+
+    // Add click toggler listeners
+    container.querySelectorAll('.toggle-pres').forEach(btn => {
+      btn.addEventListener('click', async () => await handleToggleAttendance(btn.dataset.id, 'present'));
+    });
+    container.querySelectorAll('.toggle-abs').forEach(btn => {
+      btn.addEventListener('click', async () => await handleToggleAttendance(btn.dataset.id, 'absent'));
+    });
+    container.querySelectorAll('.toggle-late').forEach(btn => {
+      btn.addEventListener('click', async () => await handleToggleAttendance(btn.dataset.id, 'late'));
+    });
+
     if (window.lucide) window.lucide.createIcons();
-    return;
+  } else {
+    const sectionStudents = getStudentsBySection(state.activeSectionId);
+
+    if (sectionStudents.length === 0) {
+      container.innerHTML = `
+        <div class="panel" style="text-align: center; color: var(--text-secondary); padding: 48px;">
+          <i data-lucide="user-x" style="width: 48px; height: 48px; margin: 0 auto 16px auto; opacity: 0.5;"></i>
+          <p>Your class registry holds 0 students in this section. Active profiles are required to check attendance.</p>
+        </div>
+      `;
+      if (window.lucide) window.lucide.createIcons();
+      return;
+    }
+
+    // Obtain todays marked values map for this section
+    const marksMap = await db.getAttendance(state.activeDate, state.activeSectionId);
+
+    let presentC = 0, absentC = 0, lateC = 0;
+
+    sectionStudents.forEach(student => {
+      // defaults to empty string if un-marked
+      const status = marksMap[student.id] || '';
+      
+      // increment statistics summary counter
+      if (status === 'present') presentC++;
+      else if (status === 'absent') absentC++;
+      else if (status === 'late') lateC++;
+
+      const item = document.createElement('div');
+      item.className = 'attendance-item';
+      item.innerHTML = `
+        <div class="student-info-main">
+          <div class="student-info-name">${student.name}</div>
+          <div class="student-info-meta">Roll Identification: ${student.roll} ${student.isIEP ? '• <span style="color:var(--accent-color);">IEP active</span>' : ''}</div>
+        </div>
+        <div class="attendance-controls">
+          <button class="btn-toggle toggle-pres ${status === 'present' ? 'active-present' : ''}" data-id="${student.id}">Present</button>
+          <button class="btn-toggle toggle-abs  ${status === 'absent' ? 'active-absent' : ''}" data-id="${student.id}">Absent</button>
+          <button class="btn-toggle toggle-late ${status === 'late' ? 'active-late' : ''}" data-id="${student.id}">Late</button>
+        </div>
+      `;
+      container.appendChild(item);
+    });
+
+    // Render stats badges
+    document.getElementById('att-stats-present').innerText = presentC;
+    document.getElementById('att-stats-absent').innerText = absentC;
+    document.getElementById('att-stats-late').innerText = lateC;
+
+    // Add click toggler listeners
+    container.querySelectorAll('.toggle-pres').forEach(btn => {
+      btn.addEventListener('click', async () => await handleToggleAttendance(btn.dataset.id, 'present'));
+    });
+    container.querySelectorAll('.toggle-abs').forEach(btn => {
+      btn.addEventListener('click', async () => await handleToggleAttendance(btn.dataset.id, 'absent'));
+    });
+    container.querySelectorAll('.toggle-late').forEach(btn => {
+      btn.addEventListener('click', async () => await handleToggleAttendance(btn.dataset.id, 'late'));
+    });
+
+    if (window.lucide) window.lucide.createIcons();
   }
-
-  // Obtain todays marked values map for this section
-  const marksMap = await db.getAttendance(state.activeDate, state.activeSectionId);
-
-  let presentC = 0, absentC = 0, lateC = 0;
-
-  sectionStudents.forEach(student => {
-    // defaults to empty string if un-marked
-    const status = marksMap[student.id] || '';
-    
-    // increment statistics summary counter
-    if (status === 'present') presentC++;
-    else if (status === 'absent') absentC++;
-    else if (status === 'late') lateC++;
-
-    const item = document.createElement('div');
-    item.className = 'attendance-item';
-    item.innerHTML = `
-      <div class="student-info-main">
-        <div class="student-info-name">${student.name}</div>
-        <div class="student-info-meta">Roll Identification: ${student.roll} ${student.isIEP ? '• <span style="color:var(--accent-color);">IEP active</span>' : ''}</div>
-      </div>
-      <div class="attendance-controls">
-        <button class="btn-toggle toggle-pres ${status === 'present' ? 'active-present' : ''}" data-id="${student.id}">Present</button>
-        <button class="btn-toggle toggle-abs  ${status === 'absent' ? 'active-absent' : ''}" data-id="${student.id}">Absent</button>
-        <button class="btn-toggle toggle-late ${status === 'late' ? 'active-late' : ''}" data-id="${student.id}">Late</button>
-      </div>
-    `;
-    container.appendChild(item);
-  });
-
-  // Render stats badges
-  document.getElementById('att-stats-present').innerText = presentC;
-  document.getElementById('att-stats-absent').innerText = absentC;
-  document.getElementById('att-stats-late').innerText = lateC;
-
-  // Add click toggler listeners
-  container.querySelectorAll('.toggle-pres').forEach(btn => {
-    btn.addEventListener('click', async () => await handleToggleAttendance(btn.dataset.id, 'present'));
-  });
-  container.querySelectorAll('.toggle-abs').forEach(btn => {
-    btn.addEventListener('click', async () => await handleToggleAttendance(btn.dataset.id, 'absent'));
-  });
-  container.querySelectorAll('.toggle-late').forEach(btn => {
-    btn.addEventListener('click', async () => await handleToggleAttendance(btn.dataset.id, 'late'));
-  });
-
-  if (window.lucide) window.lucide.createIcons();
 }
 
 async function handleToggleAttendance(studentId, targetStatus) {
-  const currentMarks = await db.getAttendance(state.activeDate, state.activeSectionId);
-  
-  if (currentMarks[studentId] === targetStatus) {
-    // Deselect if tapping currently active button
-    delete currentMarks[studentId];
-  } else {
-    currentMarks[studentId] = targetStatus;
-  }
+  if (state.attendanceType === 'teacher') {
+    const currentMarks = await db.getTeacherAttendance(state.activeDate);
+    
+    if (currentMarks[studentId] === targetStatus) {
+      delete currentMarks[studentId];
+    } else {
+      currentMarks[studentId] = targetStatus;
+    }
 
-  try {
-    await db.saveAttendance(state.activeDate, state.activeSectionId, currentMarks);
-    await renderAttendance(); // dynamic redraw listing and recount numbers
-  } catch (err) {
-    showToast(err.message, 'error');
+    try {
+      await db.saveTeacherAttendance(state.activeDate, currentMarks);
+      await renderAttendance();
+    } catch (err) {
+      showToast(err.message, 'error');
+    }
+  } else {
+    const currentMarks = await db.getAttendance(state.activeDate, state.activeSectionId);
+    
+    if (currentMarks[studentId] === targetStatus) {
+      delete currentMarks[studentId];
+    } else {
+      currentMarks[studentId] = targetStatus;
+    }
+
+    try {
+      await db.saveAttendance(state.activeDate, state.activeSectionId, currentMarks);
+      await renderAttendance();
+    } catch (err) {
+      showToast(err.message, 'error');
+    }
   }
 }
 
@@ -1652,83 +2084,162 @@ async function renderAttendanceHistory() {
   if (!container) return;
 
   container.innerHTML = '';
-  const history = await db.getAllAttendanceHistory();
-  const sectionHistory = history.filter(h => h.sectionId === state.activeSectionId);
 
-  if (sectionHistory.length === 0) {
-    container.innerHTML = `
-      <div style="text-align: center; color: var(--text-secondary); padding: 32px 12px;">
-        <i data-lucide="calendar" style="width:36px; height:36px; margin: 0 auto 10px auto; opacity:0.5;"></i>
-        <p style="font-size:0.95rem;">No historical attendance records saved for this section yet.</p>
-      </div>
-    `;
-    if (window.lucide) window.lucide.createIcons();
-    return;
-  }
+  if (state.attendanceType === 'teacher') {
+    const history = await db.getAllTeacherAttendanceHistory();
 
-  sectionHistory.forEach(record => {
-    const dateObj = new Date(record.date + 'T00:00:00');
-    const formattedDate = dateObj.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
-    
-    // Count stats
-    let present = 0, absent = 0, late = 0;
-    Object.values(record.marks).forEach(status => {
-      if (status === 'present') present++;
-      else if (status === 'absent') absent++;
-      else if (status === 'late') late++;
-    });
-
-    const card = document.createElement('div');
-    card.className = 'incident-card';
-    card.style.display = 'flex';
-    card.style.justifyContent = 'space-between';
-    card.style.alignItems = 'center';
-    card.style.flexWrap = 'wrap';
-    card.style.gap = '12px';
-    card.style.padding = '16px';
-    card.style.borderLeft = '4px solid var(--accent-color)';
-
-    card.innerHTML = `
-      <div>
-        <strong style="color:var(--text-primary); font-size:1.05rem;">${formattedDate}</strong>
-        <div style="font-size:0.85rem; color:var(--text-secondary); margin-top:4px; display:flex; gap:12px;">
-          <span>Present: <span style="color:var(--success-color); font-weight:600;">${present}</span></span>
-          <span>Absent: <span style="color:var(--error-color); font-weight:600;">${absent}</span></span>
-          <span>Late: <span style="color:var(--warning-color); font-weight:600;">${late}</span></span>
+    if (history.length === 0) {
+      container.innerHTML = `
+        <div style="text-align: center; color: var(--text-secondary); padding: 32px 12px;">
+          <i data-lucide="calendar" style="width:36px; height:36px; margin: 0 auto 10px auto; opacity:0.5;"></i>
+          <p style="font-size:0.95rem;">No historical teacher attendance records saved yet.</p>
         </div>
-      </div>
-      <div class="student-card-actions" style="margin-top:0; padding-top:0;">
-        <button class="btn btn-secondary btn-small view-history-btn" data-date="${record.date}">View Register</button>
-        <button class="btn btn-danger btn-small delete-history-btn" data-date="${record.date}">Delete</button>
-      </div>
-    `;
-    container.appendChild(card);
-  });
+      `;
+      if (window.lucide) window.lucide.createIcons();
+      return;
+    }
 
-  // Event handlers
-  container.querySelectorAll('.view-history-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      state.activeDate = btn.dataset.date;
-      const datePicker = document.getElementById('attendance-date-picker');
-      if (datePicker) datePicker.value = btn.dataset.date;
-      const btnViewDaily = document.getElementById('btn-view-daily-attendance');
-      if (btnViewDaily) btnViewDaily.click();
+    history.forEach(record => {
+      const dateObj = new Date(record.date + 'T00:00:00');
+      const formattedDate = dateObj.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
+      
+      let present = 0, absent = 0, late = 0;
+      Object.values(record.marks).forEach(status => {
+        if (status === 'present') present++;
+        else if (status === 'absent') absent++;
+        else if (status === 'late') late++;
+      });
+
+      const card = document.createElement('div');
+      card.className = 'incident-card';
+      card.style.display = 'flex';
+      card.style.justifyContent = 'space-between';
+      card.style.alignItems = 'center';
+      card.style.flexWrap = 'wrap';
+      card.style.gap = '12px';
+      card.style.padding = '16px';
+      card.style.borderLeft = '4px solid var(--accent-color)';
+
+      card.innerHTML = `
+        <div>
+          <strong style="color:var(--text-primary); font-size:1.05rem;">${formattedDate}</strong>
+          <div style="font-size:0.85rem; color:var(--text-secondary); margin-top:4px; display:flex; gap:12px;">
+            <span>Present: <span style="color:var(--success-color); font-weight:600;">${present}</span></span>
+            <span>Absent: <span style="color:var(--error-color); font-weight:600;">${absent}</span></span>
+            <span>Late: <span style="color:var(--warning-color); font-weight:600;">${late}</span></span>
+          </div>
+        </div>
+        <div class="student-card-actions" style="margin-top:0; padding-top:0;">
+          <button class="btn btn-secondary btn-small view-history-btn" data-date="${record.date}">View Register</button>
+          <button class="btn btn-danger btn-small delete-history-btn" data-date="${record.date}">Delete</button>
+        </div>
+      `;
+      container.appendChild(card);
     });
-  });
 
-  container.querySelectorAll('.delete-history-btn').forEach(btn => {
-    btn.addEventListener('click', async () => {
-      if (confirm(`Are you sure you want to permanently delete the attendance record for ${btn.dataset.date}?`)) {
-        try {
-          await db.deleteAttendanceRecord(btn.dataset.date, state.activeSectionId);
-          await renderAttendanceHistory();
-          showToast(`Attendance record for ${btn.dataset.date} deleted.`, 'error');
-        } catch (err) {
-          showToast(err.message, 'error');
+    // Event handlers
+    container.querySelectorAll('.view-history-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        state.activeDate = btn.dataset.date;
+        const datePicker = document.getElementById('attendance-date-picker');
+        if (datePicker) datePicker.value = btn.dataset.date;
+        const btnViewDaily = document.getElementById('btn-view-daily-attendance');
+        if (btnViewDaily) btnViewDaily.click();
+      });
+    });
+
+    container.querySelectorAll('.delete-history-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        if (confirm(`Are you sure you want to permanently delete the teacher attendance record for ${btn.dataset.date}?`)) {
+          try {
+            await db.deleteTeacherAttendanceRecord(btn.dataset.date);
+            await renderAttendanceHistory();
+            showToast(`Teacher attendance record for ${btn.dataset.date} deleted.`, 'error');
+          } catch (err) {
+            showToast(err.message, 'error');
+          }
         }
-      }
+      });
     });
-  });
+  } else {
+    const history = await db.getAllAttendanceHistory();
+    const sectionHistory = history.filter(h => h.sectionId === state.activeSectionId);
+
+    if (sectionHistory.length === 0) {
+      container.innerHTML = `
+        <div style="text-align: center; color: var(--text-secondary); padding: 32px 12px;">
+          <i data-lucide="calendar" style="width:36px; height:36px; margin: 0 auto 10px auto; opacity:0.5;"></i>
+          <p style="font-size:0.95rem;">No historical attendance records saved for this section yet.</p>
+        </div>
+      `;
+      if (window.lucide) window.lucide.createIcons();
+      return;
+    }
+
+    sectionHistory.forEach(record => {
+      const dateObj = new Date(record.date + 'T00:00:00');
+      const formattedDate = dateObj.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
+      
+      // Count stats
+      let present = 0, absent = 0, late = 0;
+      Object.values(record.marks).forEach(status => {
+        if (status === 'present') present++;
+        else if (status === 'absent') absent++;
+        else if (status === 'late') late++;
+      });
+
+      const card = document.createElement('div');
+      card.className = 'incident-card';
+      card.style.display = 'flex';
+      card.style.justifyContent = 'space-between';
+      card.style.alignItems = 'center';
+      card.style.flexWrap = 'wrap';
+      card.style.gap = '12px';
+      card.style.padding = '16px';
+      card.style.borderLeft = '4px solid var(--accent-color)';
+
+      card.innerHTML = `
+        <div>
+          <strong style="color:var(--text-primary); font-size:1.05rem;">${formattedDate}</strong>
+          <div style="font-size:0.85rem; color:var(--text-secondary); margin-top:4px; display:flex; gap:12px;">
+            <span>Present: <span style="color:var(--success-color); font-weight:600;">${present}</span></span>
+            <span>Absent: <span style="color:var(--error-color); font-weight:600;">${absent}</span></span>
+            <span>Late: <span style="color:var(--warning-color); font-weight:600;">${late}</span></span>
+          </div>
+        </div>
+        <div class="student-card-actions" style="margin-top:0; padding-top:0;">
+          <button class="btn btn-secondary btn-small view-history-btn" data-date="${record.date}">View Register</button>
+          <button class="btn btn-danger btn-small delete-history-btn" data-date="${record.date}">Delete</button>
+        </div>
+      `;
+      container.appendChild(card);
+    });
+
+    // Event handlers
+    container.querySelectorAll('.view-history-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        state.activeDate = btn.dataset.date;
+        const datePicker = document.getElementById('attendance-date-picker');
+        if (datePicker) datePicker.value = btn.dataset.date;
+        const btnViewDaily = document.getElementById('btn-view-daily-attendance');
+        if (btnViewDaily) btnViewDaily.click();
+      });
+    });
+
+    container.querySelectorAll('.delete-history-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        if (confirm(`Are you sure you want to permanently delete the attendance record for ${btn.dataset.date}?`)) {
+          try {
+            await db.deleteAttendanceRecord(btn.dataset.date, state.activeSectionId);
+            await renderAttendanceHistory();
+            showToast(`Attendance record for ${btn.dataset.date} deleted.`, 'error');
+          } catch (err) {
+            showToast(err.message, 'error');
+          }
+        }
+      });
+    });
+  }
 
   if (window.lucide) window.lucide.createIcons();
 }

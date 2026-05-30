@@ -274,6 +274,112 @@ export async function deleteStudent(studentId) {
 }
 
 // ─────────────────────────────────────────────
+// 2b. Teachers (localStorage)
+// ─────────────────────────────────────────────
+export async function getTeachers() {
+  try {
+    return JSON.parse(localStorage.getItem('teachers') || '[]');
+  } catch (e) {
+    return [];
+  }
+}
+
+export async function saveTeacher(teacherData) {
+  if (!teacherData.id) {
+    teacherData.id = 'tch_' + generateUUID();
+  }
+  const teachers = await getTeachers();
+  const idx = teachers.findIndex(t => t.id === teacherData.id);
+  if (idx !== -1) {
+    teachers[idx] = teacherData;
+  } else {
+    teachers.push(teacherData);
+  }
+  localStorage.setItem('teachers', JSON.stringify(teachers));
+  return teacherData;
+}
+
+export async function deleteTeacher(teacherId) {
+  let teachers = await getTeachers();
+  teachers = teachers.filter(t => t.id !== teacherId);
+  localStorage.setItem('teachers', JSON.stringify(teachers));
+  
+  // Clean up teacher attendance references
+  try {
+    const attendance = JSON.parse(localStorage.getItem('teacher_attendance') || '[]');
+    attendance.forEach(record => {
+      if (record.records && record.records[teacherId]) {
+        delete record.records[teacherId];
+      }
+    });
+    localStorage.setItem('teacher_attendance', JSON.stringify(attendance));
+  } catch (e) {
+    console.error('Error cleaning teacher attendance refs:', e);
+  }
+  return true;
+}
+
+// ─────────────────────────────────────────────
+// 3b. Teacher Attendance (localStorage)
+// ─────────────────────────────────────────────
+export async function getTeacherAttendance(dateStr) {
+  try {
+    const attendance = JSON.parse(localStorage.getItem('teacher_attendance') || '[]');
+    const record = attendance.find(a => a.date === dateStr);
+    return record ? record.records : {};
+  } catch (e) {
+    return {};
+  }
+}
+
+export async function saveTeacherAttendance(dateStr, recordsMap) {
+  try {
+    const attendance = JSON.parse(localStorage.getItem('teacher_attendance') || '[]');
+    const index = attendance.findIndex(a => a.date === dateStr);
+    const newRecord = {
+      id: index !== -1 ? attendance[index].id : 'tatt_' + generateUUID(),
+      date: dateStr,
+      records: recordsMap,
+      savedAt: new Date().toISOString()
+    };
+    if (index !== -1) {
+      attendance[index] = newRecord;
+    } else {
+      attendance.push(newRecord);
+    }
+    localStorage.setItem('teacher_attendance', JSON.stringify(attendance));
+    return true;
+  } catch (e) {
+    throw new Error('Storage quota exceeded saving teacher attendance.');
+  }
+}
+
+export async function getAllTeacherAttendanceHistory() {
+  try {
+    const attendance = JSON.parse(localStorage.getItem('teacher_attendance') || '[]');
+    const formatted = attendance.map(a => ({
+      date: a.date,
+      marks: a.records,
+      savedAt: a.savedAt
+    }));
+    return formatted.sort((a, b) => (b.date > a.date ? 1 : -1));
+  } catch (e) {
+    return [];
+  }
+}
+
+export async function deleteTeacherAttendanceRecord(dateStr) {
+  try {
+    let attendance = JSON.parse(localStorage.getItem('teacher_attendance') || '[]');
+    attendance = attendance.filter(a => a.date !== dateStr);
+    localStorage.setItem('teacher_attendance', JSON.stringify(attendance));
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+// ─────────────────────────────────────────────
 // 3. Attendance (localStorage)
 // ─────────────────────────────────────────────
 export async function getAttendance(dateStr, sectionId) {
