@@ -1,11 +1,10 @@
-const CACHE_NAME = 'teacher-assistant-v1';
+const CACHE_NAME = 'sikshanmitra-cache-v1';
 const ASSETS_TO_CACHE = [
   '/',
   '/index.html',
-  '/src/styles.css',
-  '/src/app.js',
   '/manifest.json'
 ];
+
 
 // On installation, cache the static shell resources
 self.addEventListener('install', (event) => {

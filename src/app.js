@@ -52,9 +52,51 @@ function getAiConfig() {
 }
 
 // ----------------------------------------------------
+// PWA Installation Installer Engine
+// ----------------------------------------------------
+let deferredPrompt = null;
+
+window.addEventListener('beforeinstallprompt', (e) => {
+  // Prevent Chrome 67 and earlier from automatically showing the prompt
+  e.preventDefault();
+  // Stash the event so it can be triggered later.
+  deferredPrompt = e;
+  
+  // Show install buttons
+  const btnInstallMobile = document.getElementById('btn-install-mobile');
+  const btnInstallSidebar = document.getElementById('btn-install-sidebar');
+  if (btnInstallMobile) btnInstallMobile.classList.remove('hidden');
+  if (btnInstallSidebar) btnInstallSidebar.classList.remove('hidden');
+});
+
+// Setup click event handlers for install buttons
+const handleInstallClick = async () => {
+  if (!deferredPrompt) return;
+  // Show the prompt
+  deferredPrompt.prompt();
+  // Wait for the user to respond to the prompt
+  const { outcome } = await deferredPrompt.userChoice;
+  console.log(`User response to the install prompt: ${outcome}`);
+  // We've used the prompt, and can't use it again, discard it
+  deferredPrompt = null;
+  
+  // Hide install buttons
+  const btnInstallMobile = document.getElementById('btn-install-mobile');
+  const btnInstallSidebar = document.getElementById('btn-install-sidebar');
+  if (btnInstallMobile) btnInstallMobile.classList.add('hidden');
+  if (btnInstallSidebar) btnInstallSidebar.classList.add('hidden');
+};
+
+window.addEventListener('appinstalled', (evt) => {
+  console.log('SikshanMitra was installed.');
+  showToast('SikshanMitra installed successfully!', 'success');
+});
+
+// ----------------------------------------------------
 
 // Application Bootstrap & Lifecycle Router
 // ----------------------------------------------------
+
 document.addEventListener('DOMContentLoaded', () => {
   // Try register Service Worker for PWA
   if ('serviceWorker' in navigator) {
@@ -151,7 +193,12 @@ async function initApp() {
 
   // Setup interval to process retry queue every 60s
   setInterval(processAIRetryQueue, 60000);
+
+  // 6. Bind PWA Install triggers
+  document.getElementById('btn-install-mobile')?.addEventListener('click', handleInstallClick);
+  document.getElementById('btn-install-sidebar')?.addEventListener('click', handleInstallClick);
 }
+
 
 function updateConnectivityStatus() {
   state.isOffline = !navigator.onLine;

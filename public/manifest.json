@@ -1,6 +1,7 @@
 {
-  "name": "K-12 Teacher Assistant",
-  "short_name": "Teacher Assistant",
+  "name": "SikshanMitra",
+  "short_name": "SikshanMitra",
+
   "description": "Progressive Web App K-12 Teacher Assistant - manage attendance, grades, lesson plans, incidents, parent contact, and reports offline or with Gemini AI support.",
   "start_url": "/",
   "display": "standalone",

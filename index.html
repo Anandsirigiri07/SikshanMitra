@@ -24,10 +24,16 @@
       <!-- Mobile Sticky Header -->
       <header class="mobile-header">
         <div class="logo-text" id="mobile-logo-text">SikshanMitra</div>
-        <div id="mobile-offline-badge" class="network-status-bar online hidden">
-          <i data-lucide="wifi-off"></i> Offline Mode
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <button id="btn-install-mobile" class="btn btn-secondary btn-small hidden" style="padding: 4px 8px; font-size: 0.75rem; border: 1px solid var(--accent-color); color: var(--accent-color); background: transparent; display: flex; align-items: center; gap: 4px;">
+            <i data-lucide="download" style="width: 12px; height: 12px;"></i> Install
+          </button>
+          <div id="mobile-offline-badge" class="network-status-bar online hidden">
+            <i data-lucide="wifi-off"></i> Offline Mode
+          </div>
         </div>
       </header>
+
   
       <!-- Sidebar Navigation (Adapts to Bottom Nav on Mobile) -->
       <aside class="sidebar" id="global-sidebar">
@@ -74,7 +80,12 @@
             <i data-lucide="settings"></i>
             <span>Settings</span>
           </button>
+          <button class="menu-item hidden" id="btn-install-sidebar" style="color: var(--accent-color); border-top: 1px solid var(--border-color); border-radius: 0; margin-top: 10px; padding-top: 12px;">
+            <i data-lucide="download"></i>
+            <span>Install App</span>
+          </button>
         </nav>
+
         
         <div class="sidebar-footer" style="display: flex; flex-direction: column; gap: 8px;">
           <span id="footer-class-tag">Class: Loading...</span>
