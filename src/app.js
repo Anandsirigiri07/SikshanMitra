@@ -546,6 +546,158 @@ function setupEventBindings() {
     });
   }
 
+  // Print Daily Attendance register trigger
+  const btnPrintAttendance = document.getElementById('btn-print-attendance');
+  if (btnPrintAttendance) {
+    btnPrintAttendance.addEventListener('click', async () => {
+      const sectionStudents = getStudentsBySection(state.activeSectionId);
+      if (sectionStudents.length === 0) {
+        showToast('No students registered in this section to print.', 'error');
+        return;
+      }
+
+      const activeSection = state.sections.find(s => s.id === state.activeSectionId);
+      const sectionName = activeSection ? activeSection.name : 'Unknown Section';
+      const marksMap = await db.getAttendance(state.activeDate, state.activeSectionId);
+
+      const dateObj = new Date(state.activeDate + 'T00:00:00');
+      const formattedDate = dateObj.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+
+      let presentCount = 0, absentCount = 0, lateCount = 0;
+      let rowsHtml = '';
+
+      sectionStudents.forEach(student => {
+        const status = marksMap[student.id] || '';
+        let displayStatus = 'Unmarked';
+        let statusClass = '';
+
+        if (status === 'present') {
+          presentCount++;
+          displayStatus = 'Present';
+          statusClass = 'status-present';
+        } else if (status === 'absent') {
+          absentCount++;
+          displayStatus = 'Absent';
+          statusClass = 'status-absent';
+        } else if (status === 'late') {
+          lateCount++;
+          displayStatus = 'Late';
+          statusClass = 'status-late';
+        }
+
+        rowsHtml += `
+          <tr>
+            <td>${student.roll || ''}</td>
+            <td><strong>${student.name}</strong></td>
+            <td>${student.isIEP ? 'IEP' : 'General'}</td>
+            <td class="${statusClass}">${displayStatus}</td>
+            <td>${student.parentContact || ''}</td>
+            <td style="width: 150px;"></td>
+          </tr>
+        `;
+      });
+
+      const printWindow = window.open('', '_blank', 'width=900,height=700');
+      if (!printWindow) {
+        showToast('Print popup blocked by browser. Please allow popups for this page.', 'error');
+        return;
+      }
+
+      printWindow.document.write(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <title>Attendance Register - ${sectionName}</title>
+          <style>
+            body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; color: #000; padding: 30px; margin: 0; line-height: 1.4; }
+            .header { text-align: center; margin-bottom: 25px; border-bottom: 2px double #333; padding-bottom: 15px; }
+            .header h1 { margin: 0 0 5px 0; font-size: 22px; text-transform: uppercase; letter-spacing: 0.5px; }
+            .header p { margin: 0; font-size: 13px; color: #555; }
+            .meta-section { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 20px; font-size: 13px; background: #f8f9fa; padding: 12px 18px; border-radius: 6px; border: 1px solid #ddd; }
+            .meta-item { display: flex; gap: 8px; }
+            .meta-label { font-weight: bold; color: #444; width: 110px; }
+            .stats-bar { display: flex; gap: 15px; margin-bottom: 15px; font-size: 12px; font-weight: 600; text-transform: uppercase; }
+            .stat-badge { padding: 3px 8px; border-radius: 4px; border: 1px solid #ccc; }
+            .stat-present { background-color: #e2f0d9; border-color: #385723; color: #385723; }
+            .stat-absent { background-color: #fce4d6; border-color: #c65911; color: #c65911; }
+            .stat-late { background-color: #fff2cc; border-color: #833c0c; color: #833c0c; }
+            .roster-table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+            .roster-table th, .roster-table td { border: 1px solid #aaa; padding: 6px 10px; text-align: left; font-size: 12px; }
+            .roster-table th { background-color: #f1f3f5; font-weight: bold; text-transform: uppercase; font-size: 11px; color: #333; }
+            .status-present { font-weight: 600; color: #2e7d32; }
+            .status-absent { font-weight: 600; color: #c62828; text-decoration: underline; }
+            .status-late { font-weight: 600; color: #ef6c00; }
+            .footer { margin-top: 60px; display: flex; justify-content: space-between; font-size: 12px; }
+            .signature-box { border-top: 1px dashed #000; width: 220px; text-align: center; padding-top: 6px; }
+            @media print {
+              body { padding: 0; }
+              .meta-section { background: none; border: 1px solid #000; }
+              .stat-badge { border: 1px solid #000; background: none; color: #000; }
+            }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <h1>SikshanMitra Attendance Register</h1>
+            <p>Official Analog Roster Report File & Classroom Verification Ledger</p>
+          </div>
+
+          <div class="meta-section">
+            <div>
+              <div class="meta-item"><span class="meta-label">Class/Section:</span><span>${sectionName}</span></div>
+              <div class="meta-item"><span class="meta-label">Teacher:</span><span>${state.settings.name || 'Not Specified'}</span></div>
+            </div>
+            <div>
+              <div class="meta-item"><span class="meta-label">Date File:</span><span>${formattedDate}</span></div>
+              <div class="meta-item"><span class="meta-label">School:</span><span>${state.settings.school || 'Not Specified'}</span></div>
+            </div>
+          </div>
+
+          <div class="stats-bar">
+            <span class="stat-badge">Total Roster: ${sectionStudents.length}</span>
+            <span class="stat-badge stat-present">Present: ${presentCount}</span>
+            <span class="stat-badge stat-absent">Absent: ${absentCount}</span>
+            <span class="stat-badge stat-late">Late: ${lateCount}</span>
+          </div>
+
+          <table class="roster-table">
+            <thead>
+              <tr>
+                <th style="width: 80px;">Roll No</th>
+                <th>Student Name</th>
+                <th style="width: 90px;">Category</th>
+                <th style="width: 100px;">Status</th>
+                <th style="width: 130px;">Parent Contact</th>
+                <th>Teacher Notes / Physical Signature</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rowsHtml}
+            </tbody>
+          </table>
+
+          <div class="footer">
+            <div>
+              <p style="margin: 0; font-size: 10px; color: #777;">Generated via SikshanMitra PWA Workspace • Local Time: ${new Date().toLocaleString()}</p>
+            </div>
+            <div class="signature-box" style="margin-top: 20px;">
+              <strong>Classroom Instructor Signature</strong>
+            </div>
+          </div>
+
+          <script>
+            window.onload = function() {
+              window.print();
+              setTimeout(function() { window.close(); }, 500);
+            };
+          </script>
+        </body>
+        </html>
+      `);
+      printWindow.document.close();
+    });
+  }
+
   // 5. Grade Subject picker dropdown select triggers
   const gradesSubjectSelect = document.getElementById('grades-subject-select');
   if (gradesSubjectSelect) {
