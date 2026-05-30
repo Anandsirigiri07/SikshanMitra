@@ -92,10 +92,37 @@ window.addEventListener('appinstalled', (evt) => {
   showToast('SikshanMitra installed successfully!', 'success');
 });
 
+// Mobile navigation drawer toggle controller
+function setupMobileDrawer() {
+  const toggleBtn = document.getElementById('mobile-menu-toggle');
+  const sidebar = document.getElementById('global-sidebar');
+  const backdrop = document.getElementById('sidebar-backdrop');
+  
+  const openDrawer = () => {
+    sidebar?.classList.add('open');
+    backdrop?.classList.remove('hidden');
+  };
+  
+  const closeDrawer = () => {
+    sidebar?.classList.remove('open');
+    backdrop?.classList.add('hidden');
+  };
+  
+  toggleBtn?.addEventListener('click', openDrawer);
+  backdrop?.addEventListener('click', closeDrawer);
+  
+  // Close drawer automatically when selecting any navigation link
+  const menuItems = document.querySelectorAll('.sidebar-menu .menu-item');
+  menuItems.forEach(item => {
+    item.addEventListener('click', closeDrawer);
+  });
+}
+
 // ----------------------------------------------------
 
 // Application Bootstrap & Lifecycle Router
 // ----------------------------------------------------
+
 
 document.addEventListener('DOMContentLoaded', () => {
   // Try register Service Worker for PWA
@@ -111,7 +138,10 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 async function initApp() {
+  setupMobileDrawer();
+
   // Sync state data from local storage/indexedDB
+
   state.settings = db.getSettings();
   try {
     state.students = await db.getStudents();

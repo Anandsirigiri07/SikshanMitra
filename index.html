@@ -23,7 +23,12 @@
       
       <!-- Mobile Sticky Header -->
       <header class="mobile-header">
-        <div class="logo-text" id="mobile-logo-text">SikshanMitra</div>
+        <div style="display: flex; align-items: center; gap: 12px;">
+          <button id="mobile-menu-toggle" style="background: transparent; border: none; color: var(--text-primary); cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 4px;">
+            <i data-lucide="menu" style="width: 24px; height: 24px;"></i>
+          </button>
+          <div class="logo-text" id="mobile-logo-text">SikshanMitra</div>
+        </div>
         <div style="display: flex; align-items: center; gap: 8px;">
           <button id="btn-install-mobile" class="btn btn-secondary btn-small hidden" style="padding: 4px 8px; font-size: 0.75rem; border: 1px solid var(--accent-color); color: var(--accent-color); background: transparent; display: flex; align-items: center; gap: 4px;">
             <i data-lucide="download" style="width: 12px; height: 12px;"></i> Install
@@ -33,6 +38,7 @@
           </div>
         </div>
       </header>
+
 
   
       <!-- Sidebar Navigation (Adapts to Bottom Nav on Mobile) -->
@@ -767,5 +773,9 @@
       </div>
     </div>
 
+    <!-- Sidebar Backdrop for Mobile Drawer -->
+    <div id="sidebar-backdrop" class="modal-overlay hidden" style="z-index: 999; background: rgba(0, 0, 0, 0.4); backdrop-filter: blur(2px); transition: opacity 0.3s ease;"></div>
+
   </body>
 </html>
+
