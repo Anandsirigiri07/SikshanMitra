@@ -1028,3 +1028,143 @@ td input.cell-input:focus {
   }
 }
 
+/* Biometric Face Scanner Styles */
+.scanner-circle-view {
+  position: relative;
+  width: 280px;
+  height: 280px;
+  border-radius: 50%;
+  overflow: hidden;
+  background: #000;
+  border: 4px solid var(--surface-bg);
+  box-shadow: var(--shadow-lg), 0 0 20px rgba(245, 166, 35, 0.1);
+  margin: 16px 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.scanner-video-feed {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform: scaleX(-1);
+}
+
+.scanner-guide-ring {
+  position: absolute;
+  inset: 12px;
+  border: 2px dashed rgba(245, 166, 35, 0.35);
+  border-radius: 50%;
+  pointer-events: none;
+  animation: rotateGuide 20s linear infinite;
+}
+
+.scanner-laser-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: linear-gradient(to bottom, transparent, rgba(245, 166, 35, 0.8), transparent);
+  box-shadow: 0 0 10px var(--accent-color);
+  top: 15px;
+  pointer-events: none;
+  animation: scanMotion 3s ease-in-out infinite;
+}
+
+.scanner-status-tag {
+  position: absolute;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(15, 27, 45, 0.85);
+  backdrop-filter: blur(4px);
+  padding: 6px 14px;
+  border-radius: 20px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 10;
+}
+
+.scanner-progress-pane {
+  position: absolute;
+  inset: 0;
+  background: rgba(15, 27, 45, 0.9);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  pointer-events: none;
+  z-index: 20;
+}
+
+.progress-ring-container {
+  position: relative;
+  width: 90px;
+  height: 90px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.progress-svg-ring {
+  transform: rotate(-90deg);
+}
+
+.progress-indicator-circle {
+  transition: stroke-dasharray 0.15s ease;
+}
+
+.progress-text-display {
+  position: absolute;
+  font-size: 0.9rem;
+  font-weight: bold;
+  font-family: var(--font-sans);
+  color: var(--accent-color);
+}
+
+.progress-label-text {
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-primary);
+}
+
+.scanner-success-pane {
+  position: absolute;
+  inset: 0;
+  background: rgba(15, 27, 45, 0.95);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  z-index: 30;
+}
+
+.success-icon-wrap {
+  animation: scaleSuccess 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+}
+
+@keyframes rotateGuide {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@keyframes scanMotion {
+  0%, 100% { top: 15px; }
+  50% { top: 260px; }
+}
+
+@keyframes scaleSuccess {
+  from { transform: scale(0.6); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+
+

@@ -219,8 +219,12 @@
                     <div>Late: <span class="stat-badge late" id="att-stats-late">0</span></div>
                   </div>
                 </div>
-                <div style="display: flex; gap: 8px;">
+                <div style="display: flex; gap: 8px; align-items: center;">
                   <input type="date" id="attendance-date-picker" style="max-width: 200px;" />
+                  <button class="btn btn-primary hidden" id="btn-face-attendance-scan" style="display: inline-flex; align-items: center; gap: 6px;">
+                    <i data-lucide="scan-face" style="width: 16px; height: 16px;"></i>
+                    <span>Face Check-in</span>
+                  </button>
                   <button class="btn btn-secondary" id="btn-print-attendance" style="display: inline-flex; align-items: center; gap: 6px;">
                     <i data-lucide="printer" style="width: 16px; height: 16px;"></i>
                     <span>Print</span>
@@ -388,6 +392,23 @@
                   <div class="form-group">
                     <label for="teacher-dept">Department / Subject *</label>
                     <input type="text" id="teacher-dept" required placeholder="E.g. Mathematics" />
+                  </div>
+                </div>
+                <div class="form-group">
+                  <label>Face Biometric Profile</label>
+                  <div style="display: flex; align-items: center; gap: 16px; background: rgba(15, 27, 45, 0.4); border: 1px solid var(--border-color); border-radius: var(--border-radius-md); padding: 16px; margin-bottom: 16px;">
+                    <div id="teacher-photo-preview" style="width: 80px; height: 80px; border-radius: 50%; background: var(--surface-bg); border: 2px solid var(--border-color); display: flex; align-items: center; justify-content: center; overflow: hidden; flex-shrink: 0; position: relative;">
+                      <i data-lucide="user" id="teacher-photo-placeholder" style="width: 36px; height: 36px; color: var(--text-secondary);"></i>
+                      <img id="teacher-photo-img" class="hidden" style="width: 100%; height: 100%; object-fit: cover;" />
+                    </div>
+                    <div style="display: flex; flex-direction: column; gap: 8px;">
+                      <button type="button" class="btn btn-secondary btn-small" id="btn-scan-teacher-face" style="display: inline-flex; align-items: center; gap: 6px;">
+                        <i data-lucide="camera" style="width: 16px; height: 16px;"></i>
+                        <span>Scan Face Profile</span>
+                      </button>
+                      <button type="button" class="btn btn-danger btn-small hidden" id="btn-delete-teacher-face" style="padding: 4px 8px; font-size: 0.75rem;">Delete Scan</button>
+                      <input type="hidden" id="teacher-photo-data" />
+                    </div>
                   </div>
                 </div>
                 <div class="form-group">
@@ -890,6 +911,73 @@
         <div class="modal-footer">
           <button class="btn btn-secondary" id="btn-cancel-purge">Keep Workspace Records</button>
           <button class="btn btn-danger" id="btn-confirm-purge" disabled>Permanently Wipe Database</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- FACE SCANNER MODAL -->
+    <div id="face-scanner-modal" class="modal-overlay hidden" style="z-index: 2000;">
+      <div class="modal" style="max-width: 440px; padding: 24px; text-align: center; border: 1px solid var(--border-color); background: var(--sidebar-bg); border-radius: var(--border-radius-lg);">
+        <div class="modal-header" style="border-bottom: none; margin-bottom: 12px; padding-bottom: 0; display: block; text-align: center;">
+          <h2 id="face-scanner-title" style="font-size: 1.4rem; color: var(--accent-color); font-family: var(--font-serif); font-weight: 700; margin: 0 auto; display: flex; align-items: center; justify-content: center; gap: 8px;">
+            <i data-lucide="scan-face" style="width: 24px; height: 24px;"></i>
+            <span>Biometric Face Scanner</span>
+          </h2>
+          <p id="face-scanner-subtitle" style="font-size: 0.85rem; color: var(--text-secondary); margin-top: 6px;">Align face within scanner frame</p>
+        </div>
+        
+        <div class="modal-body" style="position: relative; display: flex; flex-direction: column; align-items: center; padding: 12px 0;">
+          <!-- Dropdown for selecting teacher (only visible in attendance mode) -->
+          <div id="scanner-teacher-select-group" class="form-group hidden" style="width: 100%; text-align: left; margin-bottom: 16px;">
+            <label for="scanner-teacher-select" style="font-weight: 600;">Identify Teacher Profile *</label>
+            <select id="scanner-teacher-select" style="background: var(--bg-primary); border-color: var(--border-color);"></select>
+          </div>
+
+          <!-- Camera Feed Container -->
+          <div id="camera-feed-container" class="scanner-circle-view">
+            <video id="camera-video" autoplay playsinline class="scanner-video-feed"></video>
+            <canvas id="camera-canvas" class="hidden"></canvas>
+            
+            <!-- Scanning lines and guide frames -->
+            <div class="scanner-guide-ring"></div>
+            <div id="scan-line" class="scanner-laser-line"></div>
+            
+            <!-- Status banner inside circle -->
+            <div id="scanner-status-overlay" class="scanner-status-tag">
+              Initializing Camera...
+            </div>
+            
+            <!-- Scanning progress ring -->
+            <div id="scanner-progress-overlay" class="scanner-progress-pane hidden">
+              <div class="progress-ring-container">
+                <svg width="90" height="90" viewBox="0 0 36 36" class="progress-svg-ring">
+                  <circle cx="18" cy="18" r="15.9155" fill="none" stroke="rgba(255, 255, 255, 0.05)" stroke-width="2.5"></circle>
+                  <circle id="progress-circle" cx="18" cy="18" r="15.9155" fill="none" stroke="var(--accent-color)" stroke-dasharray="0 100" stroke-width="2.5" class="progress-indicator-circle"></circle>
+                </svg>
+                <div id="progress-text" class="progress-text-display">0%</div>
+              </div>
+              <div class="progress-label-text">Analyzing Biometrics...</div>
+            </div>
+
+            <!-- Success Overlay Screen -->
+            <div id="scanner-success-overlay" class="scanner-success-pane hidden">
+              <div class="success-icon-wrap">
+                <i data-lucide="check-circle-2" style="width: 48px; height: 48px; color: var(--success-color);"></i>
+              </div>
+              <div style="font-size: 1.1rem; font-weight: 700; color: var(--success-color); margin-bottom: 4px;">Identity Verified</div>
+              <div id="scanner-success-match-msg" style="font-size: 0.8rem; color: var(--text-secondary);">Match Confirmed: 99.2%</div>
+            </div>
+          </div>
+          
+          <div id="camera-error-msg" class="hidden" style="color: var(--error-color); font-size: 0.85rem; margin-top: 12px; font-weight: 600;"></div>
+        </div>
+        
+        <div class="modal-footer" style="justify-content: center; gap: 12px; border-top: none; padding-top: 12px;">
+          <button class="btn btn-secondary" id="btn-close-face-scanner">Cancel</button>
+          <button class="btn btn-primary" id="btn-trigger-face-scan" style="display: inline-flex; align-items: center; gap: 6px;">
+            <i data-lucide="scan" style="width: 16px; height: 16px;"></i>
+            <span>Scan Face</span>
+          </button>
         </div>
       </div>
     </div>
