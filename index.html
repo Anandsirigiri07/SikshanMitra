@@ -377,7 +377,10 @@
                   <input type="hidden" id="lesson-id-holder" />
                   <div class="form-group">
                     <label for="lesson-subject">Subject *</label>
-                    <select id="lesson-subject" required></select>
+                    <div style="display: flex; gap: 8px;">
+                      <select id="lesson-subject" required style="flex: 1;"></select>
+                      <button type="button" class="btn btn-secondary" id="btn-planner-add-subject" style="padding: 0 14px; font-size: 1.1rem; font-weight: bold; height: auto;" title="Add New Subject">+</button>
+                    </div>
                   </div>
                   <div class="form-group">
                     <label for="lesson-topic">Topic *</label>

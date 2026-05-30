@@ -624,6 +624,38 @@ function setupEventBindings() {
     });
   }
 
+  // Add Subject inside Lesson Planner trigger
+  const btnPlannerAddSubject = document.getElementById('btn-planner-add-subject');
+  if (btnPlannerAddSubject) {
+    btnPlannerAddSubject.addEventListener('click', () => {
+      const val = prompt('Enter name of the new Subject:');
+      if (val === null) return;
+      const trimmed = val.trim();
+      if (!trimmed) {
+        showToast('Subject name cannot be empty.', 'error');
+        return;
+      }
+
+      if (state.settings.subjects.includes(trimmed)) {
+        showToast('This course subject label is already in your database.', 'error');
+        return;
+      }
+
+      try {
+        state.settings.subjects.push(trimmed);
+        db.saveSettings(state.settings);
+        populateLessonFormSubjects();
+        const select = document.getElementById('lesson-subject');
+        if (select) {
+          select.value = trimmed;
+        }
+        showToast(`Subject "${trimmed}" added and selected.`, 'success');
+      } catch (err) {
+        showToast(err.message, 'error');
+      }
+    });
+  }
+
   // Save manual lesson logic
   const btnSaveManualLesson = document.getElementById('btn-save-manual-lesson');
   if (btnSaveManualLesson) {
