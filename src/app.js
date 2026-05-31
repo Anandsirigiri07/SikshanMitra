@@ -1596,28 +1596,68 @@ function setupEventBindings() {
     btnAddSection.addEventListener('click', async (e) => {
       e.preventDefault();
       const input = document.getElementById('settings-section-input');
+      const countInput = document.getElementById('settings-section-count');
       if (!input) return;
-      const val = input.value.trim();
-      if (!val) return;
+      const prefix = input.value.trim();
+      if (!prefix) return;
 
-      if (state.sections.some(s => s.name.toLowerCase() === val.toLowerCase())) {
-        showToast('This section name is already in your database.', 'error');
+      const count = countInput ? parseInt(countInput.value) : 1;
+      if (isNaN(count) || count < 1) {
+        showToast('Please enter a valid number of sections.', 'error');
+        return;
+      }
+      if (count > 26) {
+        showToast('Maximum of 26 sections can be generated at once.', 'error');
         return;
       }
 
       try {
-        const newSec = await db.saveSection({ name: val });
+        let createdCount = 0;
+        let lastCreatedSec = null;
+        let duplicateCount = 0;
+
+        if (count === 1) {
+          const name = prefix;
+          if (state.sections.some(s => s.name.toLowerCase() === name.toLowerCase())) {
+            showToast(`Section "${name}" is already in your database.`, 'error');
+            return;
+          }
+          lastCreatedSec = await db.saveSection({ name });
+          createdCount = 1;
+        } else {
+          for (let i = 0; i < count; i++) {
+            const letter = String.fromCharCode(65 + i); // 'A', 'B', 'C', etc.
+            const name = `${prefix} - ${letter}`;
+            if (state.sections.some(s => s.name.toLowerCase() === name.toLowerCase())) {
+              duplicateCount++;
+              continue;
+            }
+            lastCreatedSec = await db.saveSection({ name });
+            createdCount++;
+          }
+        }
+
         state.sections = await db.getSections();
         
         // If this is the first section, make it active
-        if (!state.activeSectionId) {
-          state.activeSectionId = newSec.id;
+        if (!state.activeSectionId && lastCreatedSec) {
+          state.activeSectionId = lastCreatedSec.id;
           localStorage.setItem('activeSectionId', state.activeSectionId);
         }
 
         input.value = '';
+        if (countInput) countInput.value = '1';
         renderSettingsSections();
-        showToast(`Section "${val}" created successfully.`, 'success');
+        
+        if (createdCount > 0) {
+          let msg = `Successfully created ${createdCount} section(s).`;
+          if (duplicateCount > 0) {
+            msg += ` (Skipped ${duplicateCount} duplicate(s))`;
+          }
+          showToast(msg, 'success');
+        } else if (duplicateCount > 0) {
+          showToast('All generated sections already exist in the database.', 'error');
+        }
         
         // Refresh active module to clear any warning or update dropdown
         await renderActiveModule();
