@@ -456,6 +456,11 @@ input, select, textarea {
   transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
+select option {
+  background-color: #111b27;
+  color: #ffffff;
+}
+
 input:focus, select:focus, textarea:focus {
   outline: none;
   border-color: var(--accent-color);
