@@ -429,6 +429,78 @@ async function renderActiveModule() {
   }
 }
 
+async function handleAddSectionSubmit(inputEl, countEl) {
+  if (!inputEl) return;
+  const prefix = inputEl.value.trim();
+  if (!prefix) return;
+
+  const count = countEl ? parseInt(countEl.value) : 1;
+  if (isNaN(count) || count < 1) {
+    showToast('Please enter a valid number of sections.', 'error');
+    return;
+  }
+  if (count > 26) {
+    showToast('Maximum of 26 sections can be generated at once.', 'error');
+    return;
+  }
+
+  try {
+    let createdCount = 0;
+    let lastCreatedSec = null;
+    let duplicateCount = 0;
+
+    if (count === 1) {
+      const name = prefix;
+      if (state.sections.some(s => s.name.toLowerCase() === name.toLowerCase())) {
+        showToast(`Section "${name}" is already in your database.`, 'error');
+        return;
+      }
+      lastCreatedSec = await db.saveSection({ name });
+      createdCount = 1;
+    } else {
+      for (let i = 0; i < count; i++) {
+        const letter = String.fromCharCode(65 + i); // 'A', 'B', 'C', etc.
+        const name = `${prefix} - ${letter}`;
+        if (state.sections.some(s => s.name.toLowerCase() === name.toLowerCase())) {
+          duplicateCount++;
+          continue;
+        }
+        lastCreatedSec = await db.saveSection({ name });
+        createdCount++;
+      }
+    }
+
+    state.sections = await db.getSections();
+    
+    // If this is the first section, make it active
+    if (!state.activeSectionId && lastCreatedSec) {
+      state.activeSectionId = lastCreatedSec.id;
+      localStorage.setItem('activeSectionId', state.activeSectionId);
+    }
+
+    inputEl.value = '';
+    if (countEl) countEl.value = '1';
+    
+    renderSettingsSections();
+    renderDashboardSections();
+    
+    if (createdCount > 0) {
+      let msg = `Successfully created ${createdCount} section(s).`;
+      if (duplicateCount > 0) {
+        msg += ` (Skipped ${duplicateCount} duplicate(s))`;
+      }
+      showToast(msg, 'success');
+    } else if (duplicateCount > 0) {
+      showToast('All generated sections already exist in the database.', 'error');
+    }
+    
+    // Refresh active module to clear any warning or update dropdown
+    await renderActiveModule();
+  } catch (err) {
+    showToast(err.message, 'error');
+  }
+}
+
 // ----------------------------------------------------
 // EVENT BINDINGS (Forms Submissions, Modals, Clicks)
 // ----------------------------------------------------
@@ -1595,75 +1667,22 @@ function setupEventBindings() {
   if (btnAddSection) {
     btnAddSection.addEventListener('click', async (e) => {
       e.preventDefault();
-      const input = document.getElementById('settings-section-input');
-      const countInput = document.getElementById('settings-section-count');
-      if (!input) return;
-      const prefix = input.value.trim();
-      if (!prefix) return;
+      await handleAddSectionSubmit(
+        document.getElementById('settings-section-input'),
+        document.getElementById('settings-section-count')
+      );
+    });
+  }
 
-      const count = countInput ? parseInt(countInput.value) : 1;
-      if (isNaN(count) || count < 1) {
-        showToast('Please enter a valid number of sections.', 'error');
-        return;
-      }
-      if (count > 26) {
-        showToast('Maximum of 26 sections can be generated at once.', 'error');
-        return;
-      }
-
-      try {
-        let createdCount = 0;
-        let lastCreatedSec = null;
-        let duplicateCount = 0;
-
-        if (count === 1) {
-          const name = prefix;
-          if (state.sections.some(s => s.name.toLowerCase() === name.toLowerCase())) {
-            showToast(`Section "${name}" is already in your database.`, 'error');
-            return;
-          }
-          lastCreatedSec = await db.saveSection({ name });
-          createdCount = 1;
-        } else {
-          for (let i = 0; i < count; i++) {
-            const letter = String.fromCharCode(65 + i); // 'A', 'B', 'C', etc.
-            const name = `${prefix} - ${letter}`;
-            if (state.sections.some(s => s.name.toLowerCase() === name.toLowerCase())) {
-              duplicateCount++;
-              continue;
-            }
-            lastCreatedSec = await db.saveSection({ name });
-            createdCount++;
-          }
-        }
-
-        state.sections = await db.getSections();
-        
-        // If this is the first section, make it active
-        if (!state.activeSectionId && lastCreatedSec) {
-          state.activeSectionId = lastCreatedSec.id;
-          localStorage.setItem('activeSectionId', state.activeSectionId);
-        }
-
-        input.value = '';
-        if (countInput) countInput.value = '1';
-        renderSettingsSections();
-        
-        if (createdCount > 0) {
-          let msg = `Successfully created ${createdCount} section(s).`;
-          if (duplicateCount > 0) {
-            msg += ` (Skipped ${duplicateCount} duplicate(s))`;
-          }
-          showToast(msg, 'success');
-        } else if (duplicateCount > 0) {
-          showToast('All generated sections already exist in the database.', 'error');
-        }
-        
-        // Refresh active module to clear any warning or update dropdown
-        await renderActiveModule();
-      } catch (err) {
-        showToast(err.message, 'error');
-      }
+  // Dashboard Add section trigger
+  const btnDashAddSection = document.getElementById('btn-dash-add-section');
+  if (btnDashAddSection) {
+    btnDashAddSection.addEventListener('click', async (e) => {
+      e.preventDefault();
+      await handleAddSectionSubmit(
+        document.getElementById('dash-section-input'),
+        document.getElementById('dash-section-count')
+      );
     });
   }
 
@@ -1917,6 +1936,7 @@ async function renderDashboard() {
       `;
     }
   }
+  renderDashboardSections();
 }
 
 // Render dynamic student profiles cards
@@ -3147,8 +3167,8 @@ function renderSettingsSubjects() {
   });
 }
 
-function renderSettingsSections() {
-  const container = document.getElementById('settings-section-container');
+function renderSectionsList(containerId, editBtnClass, deleteBtnClass) {
+  const container = document.getElementById(containerId);
   if (!container) return;
 
   container.innerHTML = '';
@@ -3160,16 +3180,16 @@ function renderSettingsSections() {
     tag.style.gap = '8px';
     tag.innerHTML = `
       <span>${sec.name}</span>
-      <button class="section-edit" data-id="${sec.id}" title="Rename Section" style="background:none; border:none; color:var(--text-secondary); cursor:pointer; font-size:0.8rem; padding:0 2px;">
+      <button class="${editBtnClass}" data-id="${sec.id}" title="Rename Section" style="background:none; border:none; color:var(--text-secondary); cursor:pointer; font-size:0.8rem; padding:0 2px;">
         ✏️
       </button>
-      <button class="section-remove tag-remove" data-id="${sec.id}" title="Delete Section" style="background:none; border:none; cursor:pointer; padding:0 2px; font-weight:bold;">&times;</button>
+      <button class="${deleteBtnClass} tag-remove" data-id="${sec.id}" title="Delete Section" style="background:none; border:none; cursor:pointer; padding:0 2px; font-weight:bold;">&times;</button>
     `;
     container.appendChild(tag);
   });
 
   // Rename Section trigger
-  container.querySelectorAll('.section-edit').forEach(btn => {
+  container.querySelectorAll(`.${editBtnClass}`).forEach(btn => {
     btn.addEventListener('click', async () => {
       const secId = btn.dataset.id;
       const sec = state.sections.find(s => s.id === secId);
@@ -3188,6 +3208,7 @@ function renderSettingsSections() {
         await db.saveSection(sec);
         state.sections = await db.getSections();
         renderSettingsSections();
+        renderDashboardSections();
         showToast(`Section renamed to "${trimmed}".`, 'success');
         
         // Re-render universal selectors to reflect changes
@@ -3203,7 +3224,7 @@ function renderSettingsSections() {
   });
 
   // Delete Section trigger with cascade warning
-  container.querySelectorAll('.section-remove').forEach(btn => {
+  container.querySelectorAll(`.${deleteBtnClass}`).forEach(btn => {
     btn.addEventListener('click', async () => {
       const secId = btn.dataset.id;
       const sec = state.sections.find(s => s.id === secId);
@@ -3221,6 +3242,7 @@ function renderSettingsSections() {
           }
           
           renderSettingsSections();
+          renderDashboardSections();
           showToast(`Section "${sec.name}" and all associated data permanently deleted.`, 'error');
           
           // Re-render current module to reflect change
@@ -3231,6 +3253,14 @@ function renderSettingsSections() {
       }
     });
   });
+}
+
+function renderSettingsSections() {
+  renderSectionsList('settings-section-container', 'section-edit', 'section-remove');
+}
+
+function renderDashboardSections() {
+  renderSectionsList('dash-section-container', 'dash-section-edit', 'dash-section-remove');
 }
 
 // ----------------------------------------------------

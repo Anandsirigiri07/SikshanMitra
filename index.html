@@ -185,6 +185,35 @@
                   <div>No registered students found. Head to the <strong style="color:var(--accent-color); cursor:pointer;" onclick="document.getElementById('nav-students').click()">Students module</strong> to set up your roster!</div>
                 </div>
               </div>
+              <!-- Manage Sections Panel on Dashboard -->
+              <div class="panel">
+                <div class="panel-header">
+                  <h3 class="panel-title">Manage Sections</h3>
+                </div>
+                <div style="display: flex; flex-direction: column; gap: 16px;">
+                  <div class="form-row" style="margin-bottom: 0;">
+                    <div class="form-group" style="flex: 2; margin-bottom: 0;">
+                      <label for="dash-section-input">Standard / Grade Prefix *</label>
+                      <input type="text" id="dash-section-input" placeholder="E.g. 5th Std, Grade 6" required />
+                    </div>
+                    <div class="form-group" style="flex: 1; min-width: 100px; margin-bottom: 0;">
+                      <label for="dash-section-count">Number of Sections *</label>
+                      <input type="number" id="dash-section-count" min="1" max="26" value="1" required />
+                    </div>
+                  </div>
+                  <div style="display: flex; justify-content: flex-end;">
+                    <button class="btn btn-secondary" id="btn-dash-add-section" style="width: 100%; justify-content: center;">
+                      Add Section(s)
+                    </button>
+                  </div>
+                  <div class="form-group" style="margin-bottom: 0;">
+                    <label>Current Sections</label>
+                    <div class="tag-list" id="dash-section-container">
+                      <!-- Sections lists rendered here dynamically -->
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         </section>
