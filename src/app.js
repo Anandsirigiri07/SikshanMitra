@@ -4175,7 +4175,7 @@ async function loadFaceApiModels() {
   const statusOverlay = document.getElementById('scanner-status-overlay');
   if (statusOverlay) statusOverlay.innerText = 'Loading neural network models...';
   
-  const MODEL_URL = 'https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model/';
+  const MODEL_URL = '/models/';
   
   // Load ssdMobilenetv1, faceLandmark68Net, and faceRecognitionNet
   await faceapi.nets.ssdMobilenetv1.loadFromUri(MODEL_URL);
@@ -4191,9 +4191,12 @@ async function getDescriptorFromImage(photoUrlOrImgElement) {
   if (typeof photoUrlOrImgElement === 'string') {
     img = await new Promise((resolve, reject) => {
       const i = new Image();
-      i.crossOrigin = 'anonymous'; // handle CORS
+      // Only set crossOrigin for external HTTP/HTTPS URLs, as setting it on base64 data URIs throws a security exception.
+      if (photoUrlOrImgElement.startsWith('http') || photoUrlOrImgElement.startsWith('//')) {
+        i.crossOrigin = 'anonymous';
+      }
       i.onload = () => resolve(i);
-      i.onerror = (e) => reject(new Error('Image failed to load: ' + e.message));
+      i.onerror = (e) => reject(new Error('Image failed to load: check format or permissions.'));
       i.src = photoUrlOrImgElement;
     });
   }
