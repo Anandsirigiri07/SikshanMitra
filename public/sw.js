@@ -1,4 +1,4 @@
-const CACHE_NAME = 'sikshanmitra-cache-v3';
+const CACHE_NAME = 'sikshanmitra-cache-v4';
 const ASSETS_TO_CACHE = [
   '/',
   '/index.html',
@@ -35,8 +35,12 @@ self.addEventListener('activate', (event) => {
 
 // Network First, falling back to Cache strategy
 self.addEventListener('fetch', (event) => {
-  // Let the browser handle external APIs like Gemini or analytics directly (especially POST requests)
-  if (event.request.method !== 'GET' || event.request.url.includes('generativelanguage.googleapis.com')) {
+  // Let the browser handle external APIs or large model weight files directly
+  if (
+    event.request.method !== 'GET' || 
+    event.request.url.includes('generativelanguage.googleapis.com') ||
+    event.request.url.includes('/models/')
+  ) {
     return;
   }
 
