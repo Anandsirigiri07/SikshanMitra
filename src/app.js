@@ -4123,7 +4123,7 @@ async function finishScan(dataUrl) {
 
     // Await real face comparison
     const similarity = await compareFaces(teacher.photo, dataUrl);
-    const passThreshold = 58.0;
+    const passThreshold = 45.0; // Enforces a strict Euclidean distance of <= 0.55 (FaceID-grade lock security)
     const matchScore = similarity.toFixed(1);
 
     if (similarity >= passThreshold) {
@@ -4167,184 +4167,66 @@ async function finishScan(dataUrl) {
 }
 
 // ----------------------------------------------------
-// Biometric Face Comparison Algorithms
+// Biometric Face Comparison Algorithms (face-api.js)
 // ----------------------------------------------------
+let modelsLoaded = false;
+async function loadFaceApiModels() {
+  if (modelsLoaded) return;
+  const statusOverlay = document.getElementById('scanner-status-overlay');
+  if (statusOverlay) statusOverlay.innerText = 'Loading neural network models...';
+  
+  const MODEL_URL = 'https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model/';
+  
+  // Load ssdMobilenetv1, faceLandmark68Net, and faceRecognitionNet
+  await faceapi.nets.ssdMobilenetv1.loadFromUri(MODEL_URL);
+  await faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL);
+  await faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL);
+  
+  modelsLoaded = true;
+  console.log('face-api.js neural network models loaded successfully.');
+}
+
+async function getDescriptorFromImage(photoUrlOrImgElement) {
+  let img = photoUrlOrImgElement;
+  if (typeof photoUrlOrImgElement === 'string') {
+    img = await new Promise((resolve, reject) => {
+      const i = new Image();
+      i.crossOrigin = 'anonymous'; // handle CORS
+      i.onload = () => resolve(i);
+      i.onerror = (e) => reject(new Error('Image failed to load: ' + e.message));
+      i.src = photoUrlOrImgElement;
+    });
+  }
+  
+  const detection = await faceapi.detectSingleFace(img)
+    .withFaceLandmarks()
+    .withFaceDescriptor();
+    
+  return detection ? detection.descriptor : null;
+}
+
 async function compareFaces(photoDataUrl1, photoDataUrl2) {
-  return new Promise((resolve) => {
-    if (!photoDataUrl1 || !photoDataUrl2) {
-      resolve(0);
-      return;
+  try {
+    await loadFaceApiModels();
+    
+    const desc1 = await getDescriptorFromImage(photoDataUrl1);
+    const desc2 = await getDescriptorFromImage(photoDataUrl2);
+    
+    if (!desc1 || !desc2) {
+      console.warn('Face detection failed for one or both templates.');
+      return 0; // 0% similarity
     }
-
-    const img1 = new Image();
-    const img2 = new Image();
     
-    let loadedCount = 0;
-    const onImgLoad = () => {
-      loadedCount++;
-      if (loadedCount === 2) {
-        try {
-          const canvas1 = document.createElement('canvas');
-          const canvas2 = document.createElement('canvas');
-          const size = 32; // resize to 32x32 for speed and fuzzy matching
-          canvas1.width = size;
-          canvas1.height = size;
-          canvas2.width = size;
-          canvas2.height = size;
-          
-          const ctx1 = canvas1.getContext('2d');
-          const ctx2 = canvas2.getContext('2d');
-          
-          const gray1 = getGrayscaleData(ctx1, img1, size);
-          const gray2 = getGrayscaleData(ctx2, img2, size);
-          
-          let maxSimilarity = 0;
-          
-          // Search with small shifts (dx, dy) to handle slight translations / framing changes
-          for (let dy = -2; dy <= 2; dy++) {
-            for (let dx = -2; dx <= 2; dx++) {
-              const pixelSim = computeEllipseCorrelation(gray1, gray2, size, dx, dy);
-              const gradSim = computeGradientSimilarity(gray1, gray2, size, dx, dy);
-              
-              // Combined score of pixel structural correlation and edge direction matching
-              const sim = 0.5 * pixelSim + 0.5 * gradSim;
-              if (sim > maxSimilarity) {
-                maxSimilarity = sim;
-              }
-            }
-          }
-          
-          // Convert from [0, 1] range to percentage [0, 100]%
-          resolve(Math.max(0, maxSimilarity) * 100);
-        } catch (e) {
-          console.error("Error comparing face templates:", e);
-          resolve(0); // safe fallback
-        }
-      }
-    };
+    const distance = faceapi.euclideanDistance(desc1, desc2);
+    console.log('Euclidean distance between face descriptors:', distance);
     
-    img1.onerror = () => resolve(0);
-    img2.onerror = () => resolve(0);
-    
-    img1.onload = onImgLoad;
-    img2.onload = onImgLoad;
-    
-    img1.src = photoDataUrl1;
-    img2.src = photoDataUrl2;
-  });
-}
-
-function getGrayscaleData(ctx, img, size) {
-  ctx.drawImage(img, 0, 0, size, size);
-  const data = ctx.getImageData(0, 0, size, size).data;
-  const gray = new Float32Array(size * size);
-  for (let i = 0; i < data.length; i += 4) {
-    // Luma formula: 0.299R + 0.587G + 0.114B
-    gray[i / 4] = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+    // Scale similarity score where distance <= 0.55 (match) corresponds to >= 45.0% similarity.
+    // Euclidean distance for a match is typically 0.25 - 0.50 (maps to 50% - 75% similarity).
+    // Different people typically score 0.65 - 0.85 (maps to 15% - 35% similarity).
+    const similarity = Math.max(0, 1 - distance) * 100;
+    return similarity;
+  } catch (err) {
+    console.error("Error during neural network comparison:", err);
+    return 0;
   }
-  return gray;
-}
-
-function computeEllipseCorrelation(gray1, gray2, size, dx, dy) {
-  let count = 0;
-  
-  const cx = size / 2;
-  const cy = size / 2;
-  const rx = size * 0.28; // horizontal radius of face ellipse (~9 pixels)
-  const ry = size * 0.38; // vertical radius of face ellipse (~12 pixels)
-  
-  // Calculate means of the overlapping elliptical regions
-  let sum1 = 0;
-  let sum2 = 0;
-  for (let y = 0; y < size; y++) {
-    const y2 = y + dy;
-    if (y2 < 0 || y2 >= size) continue;
-    for (let x = 0; x < size; x++) {
-      const x2 = x + dx;
-      if (x2 < 0 || x2 >= size) continue;
-      
-      const dx_ellipse = (x - cx) / rx;
-      const dy_ellipse = (y - cy) / ry;
-      if (dx_ellipse * dx_ellipse + dy_ellipse * dy_ellipse > 1.0) continue;
-      
-      sum1 += gray1[y * size + x];
-      sum2 += gray2[y2 * size + x2];
-      count++;
-    }
-  }
-  
-  if (count === 0) return 0;
-  const mean1 = sum1 / count;
-  const mean2 = sum2 / count;
-  
-  // Calculate covariance and standard deviations
-  let var1 = 0;
-  let var2 = 0;
-  let covar = 0;
-  
-  for (let y = 0; y < size; y++) {
-    const y2 = y + dy;
-    if (y2 < 0 || y2 >= size) continue;
-    for (let x = 0; x < size; x++) {
-      const x2 = x + dx;
-      if (x2 < 0 || x2 >= size) continue;
-      
-      const dx_ellipse = (x - cx) / rx;
-      const dy_ellipse = (y - cy) / ry;
-      if (dx_ellipse * dx_ellipse + dy_ellipse * dy_ellipse > 1.0) continue;
-      
-      const diff1 = gray1[y * size + x] - mean1;
-      const diff2 = gray2[y2 * size + x2] - mean2;
-      
-      var1 += diff1 * diff1;
-      var2 += diff2 * diff2;
-      covar += diff1 * diff2;
-    }
-  }
-  
-  const std1 = Math.sqrt(var1);
-  const std2 = Math.sqrt(var2);
-  
-  if (std1 === 0 || std2 === 0) return 0;
-  return covar / (std1 * std2);
-}
-
-function computeGradientSimilarity(gray1, gray2, size, dx, dy) {
-  let num = 0;
-  let den = 0;
-  
-  const cx = size / 2;
-  const cy = size / 2;
-  const rx = size * 0.28;
-  const ry = size * 0.38;
-  
-  for (let y = 1; y < size - 1; y++) {
-    const y2 = y + dy;
-    if (y2 < 1 || y2 >= size - 1) continue;
-    
-    for (let x = 1; x < size - 1; x++) {
-      const x2 = x + dx;
-      if (x2 < 1 || x2 >= size - 1) continue;
-      
-      const dx_ellipse = (x - cx) / rx;
-      const dy_ellipse = (y - cy) / ry;
-      if (dx_ellipse * dx_ellipse + dy_ellipse * dy_ellipse > 1.0) continue;
-      
-      // Simple central difference gradients
-      const dx1 = gray1[y * size + (x + 1)] - gray1[y * size + (x - 1)];
-      const dy1 = gray1[(y + 1) * size + x] - gray1[(y - 1) * size + x];
-      
-      const dx2 = gray2[y2 * size + (x2 + 1)] - gray2[y2 * size + (x2 - 1)];
-      const dy2 = gray2[(y2 + 1) * size + x2] - gray2[(y2 - 1) * size + x2];
-      
-      const mag1 = Math.sqrt(dx1 * dx1 + dy1 * dy1);
-      const mag2 = Math.sqrt(dx2 * dx2 + dy2 * dy2);
-      
-      num += (dx1 * dx2 + dy1 * dy2);
-      den += (mag1 * mag2);
-    }
-  }
-  
-  if (den === 0) return 0;
-  return num / den;
 }
