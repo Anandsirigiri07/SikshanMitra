@@ -4091,6 +4091,37 @@ async function finishScan(dataUrl) {
     const placeholder = document.getElementById('teacher-photo-placeholder');
     const deleteBtn = document.getElementById('btn-delete-teacher-face');
     
+    if (statusOverlay) statusOverlay.innerText = 'Verifying face structure...';
+
+    // Verify face is actually detected before allowing registration
+    try {
+      await loadFaceApiModels();
+      const desc = await getDescriptorFromImage(dataUrl);
+      if (!desc) {
+        // Face detection failed
+        const errorMsg = document.getElementById('camera-error-msg');
+        if (errorMsg) {
+          errorMsg.innerText = 'Registration Failed. Face not detected in frame. Please align your face in the center and try again.';
+          errorMsg.classList.add('hidden');
+        }
+        if (statusOverlay) statusOverlay.innerText = 'Face Not Detected';
+        showToast('Face not detected. Registration blocked.', 'error');
+
+        // Re-enable scan button so they can retry
+        const triggerBtn = document.getElementById('btn-trigger-face-scan');
+        if (triggerBtn) {
+          triggerBtn.disabled = false;
+          const textSpan = triggerBtn.querySelector('span');
+          if (textSpan) textSpan.innerText = 'Scan Face';
+        }
+        return;
+      }
+    } catch (err) {
+      console.error('Error during registration face validation:', err);
+      showToast('Error validating face structure.', 'error');
+      return;
+    }
+
     if (photoInput) photoInput.value = dataUrl;
     if (photoImg) {
       photoImg.src = dataUrl;
@@ -4121,47 +4152,95 @@ async function finishScan(dataUrl) {
 
     if (statusOverlay) statusOverlay.innerText = 'Comparing face biometrics...';
 
-    // Await real face comparison
-    const similarity = await compareFaces(teacher.photo, dataUrl);
-    const passThreshold = 45.0; // Enforces a strict Euclidean distance of <= 0.55 (FaceID-grade lock security)
-    const matchScore = similarity.toFixed(1);
+    // Perform check-in diagnostics to detect where failure lies
+    try {
+      await loadFaceApiModels();
+      const desc1 = await getDescriptorFromImage(teacher.photo);
+      const desc2 = await getDescriptorFromImage(dataUrl);
 
-    if (similarity >= passThreshold) {
-      if (successOverlay) successOverlay.classList.remove('hidden');
-      if (successMatchMsg) successMatchMsg.innerText = `Matched: ${teacher.name} (${matchScore}%)`;
-      if (statusOverlay) statusOverlay.innerText = 'Verification Successful';
+      if (!desc1) {
+        const errorMsg = document.getElementById('camera-error-msg');
+        if (errorMsg) {
+          errorMsg.innerText = 'Verification Failed. No face found in your registered profile template. Please delete it in Settings and re-register.';
+          errorMsg.classList.remove('hidden');
+        }
+        if (statusOverlay) statusOverlay.innerText = 'Profile Face Error';
+        showToast('Face not found in registered profile template.', 'error');
 
-      const currentMarks = await db.getTeacherAttendance(state.activeDate);
-      currentMarks[teacherId] = 'present';
+        const triggerBtn = document.getElementById('btn-trigger-face-scan');
+        if (triggerBtn) {
+          triggerBtn.disabled = false;
+          const textSpan = triggerBtn.querySelector('span');
+          if (textSpan) textSpan.innerText = 'Match & Verify';
+        }
+        return;
+      }
+
+      if (!desc2) {
+        const errorMsg = document.getElementById('camera-error-msg');
+        if (errorMsg) {
+          errorMsg.innerText = 'Verification Failed. Face not detected in current scan. Please center your face and try again.';
+          errorMsg.classList.remove('hidden');
+        }
+        if (statusOverlay) statusOverlay.innerText = 'Scan Face Error';
+        showToast('Face not detected in current camera view.', 'error');
+
+        const triggerBtn = document.getElementById('btn-trigger-face-scan');
+        if (triggerBtn) {
+          triggerBtn.disabled = false;
+          const textSpan = triggerBtn.querySelector('span');
+          if (textSpan) textSpan.innerText = 'Match & Verify';
+        }
+        return;
+      }
+
+      // Compute matching similarity
+      const distance = faceapi.euclideanDistance(desc1, desc2);
+      console.log('Euclidean distance between face descriptors:', distance);
       
-      try {
-        await db.saveTeacherAttendance(state.activeDate, currentMarks);
-        showToast(`Identity verified. ${teacher.name} marked Present.`, 'success');
-        await renderAttendance();
-      } catch (err) {
-        showToast(err.message, 'error');
-      }
+      const similarity = Math.max(0, 1 - distance) * 100;
+      const passThreshold = 45.0; // Enforces Euclidean distance <= 0.55 (FaceID-grade unlock security)
+      const matchScore = similarity.toFixed(1);
 
-      setTimeout(() => {
-        stopFaceScanner();
-      }, 2000);
-    } else {
-      // Failed verification!
-      const errorMsg = document.getElementById('camera-error-msg');
-      if (errorMsg) {
-        errorMsg.innerText = `Verification Failed. Face match similarity (${matchScore}%) is below the required threshold of ${passThreshold}%.`;
-        errorMsg.classList.remove('hidden');
-      }
-      if (statusOverlay) statusOverlay.innerText = 'Verification Failed';
-      showToast(`Verification failed: Face match similarity (${matchScore}%) too low.`, 'error');
+      if (similarity >= passThreshold) {
+        if (successOverlay) successOverlay.classList.remove('hidden');
+        if (successMatchMsg) successMatchMsg.innerText = `Matched: ${teacher.name} (${matchScore}%)`;
+        if (statusOverlay) statusOverlay.innerText = 'Verification Successful';
 
-      // Re-enable trigger button and hide progress spinner so they can retry
-      const triggerBtn = document.getElementById('btn-trigger-face-scan');
-      if (triggerBtn) {
-        triggerBtn.disabled = false;
-        const textSpan = triggerBtn.querySelector('span');
-        if (textSpan) textSpan.innerText = 'Match & Verify';
+        const currentMarks = await db.getTeacherAttendance(state.activeDate);
+        currentMarks[teacherId] = 'present';
+        
+        try {
+          await db.saveTeacherAttendance(state.activeDate, currentMarks);
+          showToast(`Identity verified. ${teacher.name} marked Present.`, 'success');
+          await renderAttendance();
+        } catch (err) {
+          showToast(err.message, 'error');
+        }
+
+        setTimeout(() => {
+          stopFaceScanner();
+        }, 2000);
+      } else {
+        // Face mismatch (different person / friend)
+        const errorMsg = document.getElementById('camera-error-msg');
+        if (errorMsg) {
+          errorMsg.innerText = `Verification Failed. Face mismatch similarity (${matchScore}%) is below the required threshold.`;
+          errorMsg.classList.remove('hidden');
+        }
+        if (statusOverlay) statusOverlay.innerText = 'Verification Failed';
+        showToast('Identity verification failed: mismatch detected.', 'error');
+
+        const triggerBtn = document.getElementById('btn-trigger-face-scan');
+        if (triggerBtn) {
+          triggerBtn.disabled = false;
+          const textSpan = triggerBtn.querySelector('span');
+          if (textSpan) textSpan.innerText = 'Match & Verify';
+        }
       }
+    } catch (err) {
+      console.error('Error during biometric comparison:', err);
+      showToast('Error performing biometric comparison.', 'error');
     }
   }
 }
@@ -4201,7 +4280,9 @@ async function getDescriptorFromImage(photoUrlOrImgElement) {
     });
   }
   
-  const detection = await faceapi.detectSingleFace(img)
+  // Configure detection options with a slightly lower confidence threshold (0.4) for robust low-light detection
+  const options = new faceapi.SsdMobilenetv1Options({ minConfidence: 0.4 });
+  const detection = await faceapi.detectSingleFace(img, options)
     .withFaceLandmarks()
     .withFaceDescriptor();
     
@@ -4224,8 +4305,6 @@ async function compareFaces(photoDataUrl1, photoDataUrl2) {
     console.log('Euclidean distance between face descriptors:', distance);
     
     // Scale similarity score where distance <= 0.55 (match) corresponds to >= 45.0% similarity.
-    // Euclidean distance for a match is typically 0.25 - 0.50 (maps to 50% - 75% similarity).
-    // Different people typically score 0.65 - 0.85 (maps to 15% - 35% similarity).
     const similarity = Math.max(0, 1 - distance) * 100;
     return similarity;
   } catch (err) {
