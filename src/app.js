@@ -147,7 +147,12 @@ async function initApp() {
   setupMobileDrawer();
 
   // Sync IndexedDB migration to localStorage if needed
-  await db.migrateIndexedDbToLocalStorage();
+  try {
+    await db.migrateIndexedDbToLocalStorage();
+    await db.migrateTeachersToIndexedDb();
+  } catch (e) {
+    console.warn('[initApp] Database migrations failed, continuing:', e);
+  }
 
   // Sync state data from local storage/indexedDB
   state.settings = db.getSettings();

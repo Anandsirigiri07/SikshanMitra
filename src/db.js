@@ -5,7 +5,7 @@
  */
 
 const DB_NAME = 'TeacherAssistantDB';
-const DB_VERSION = 3;
+const DB_VERSION = 4;
 
 const DEFAULT_SUBJECTS = ['Mathematics', 'Science', 'English Language Arts', 'Social Studies', 'Creative Arts'];
 
@@ -23,45 +23,56 @@ function openDB() {
   if (_db) return Promise.resolve(_db);
 
   return new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, DB_VERSION);
+    if (typeof window === 'undefined' || !window.indexedDB) {
+      reject(new Error('IndexedDB is not supported in this environment.'));
+      return;
+    }
 
-    req.onupgradeneeded = (event) => {
-      const db = event.target.result;
+    try {
+      const req = indexedDB.open(DB_NAME, DB_VERSION);
 
-      // Object stores
-      if (!db.objectStoreNames.contains('students')) {
-        db.createObjectStore('students', { keyPath: 'id' });
-      }
-      if (!db.objectStoreNames.contains('attendance')) {
-        // keyPath = dateStr  e.g. "2024-05-30"
-        db.createObjectStore('attendance', { keyPath: 'date' });
-      }
-      if (!db.objectStoreNames.contains('grades')) {
-        db.createObjectStore('grades', { keyPath: 'subject' });
-      }
-      if (!db.objectStoreNames.contains('lessons')) {
-        db.createObjectStore('lessons', { keyPath: 'id' });
-      }
-      if (!db.objectStoreNames.contains('incidents')) {
-        db.createObjectStore('incidents', { keyPath: 'id' });
-      }
-      if (!db.objectStoreNames.contains('messages')) {
-        db.createObjectStore('messages', { keyPath: 'id' });
-      }
-      if (!db.objectStoreNames.contains('reports')) {
-        db.createObjectStore('reports', { keyPath: 'id' });
-      }
-    };
+      req.onupgradeneeded = (event) => {
+        const db = event.target.result;
 
-    req.onsuccess = (e) => {
-      _db = e.target.result;
-      resolve(_db);
-    };
+        // Object stores
+        if (!db.objectStoreNames.contains('students')) {
+          db.createObjectStore('students', { keyPath: 'id' });
+        }
+        if (!db.objectStoreNames.contains('attendance')) {
+          db.createObjectStore('attendance', { keyPath: 'date' });
+        }
+        if (!db.objectStoreNames.contains('grades')) {
+          db.createObjectStore('grades', { keyPath: 'subject' });
+        }
+        if (!db.objectStoreNames.contains('lessons')) {
+          db.createObjectStore('lessons', { keyPath: 'id' });
+        }
+        if (!db.objectStoreNames.contains('incidents')) {
+          db.createObjectStore('incidents', { keyPath: 'id' });
+        }
+        if (!db.objectStoreNames.contains('messages')) {
+          db.createObjectStore('messages', { keyPath: 'id' });
+        }
+        if (!db.objectStoreNames.contains('reports')) {
+          db.createObjectStore('reports', { keyPath: 'id' });
+        }
+        if (!db.objectStoreNames.contains('teachers')) {
+          db.createObjectStore('teachers', { keyPath: 'id' });
+        }
+      };
 
-    req.onerror = (e) => {
-      console.error('IndexedDB open error:', e.target.error);
-      reject(e.target.error);
-    };
+      req.onsuccess = (e) => {
+        _db = e.target.result;
+        resolve(_db);
+      };
+
+      req.onerror = (e) => {
+        console.error('IndexedDB open error:', e.target.error);
+        reject(e.target.error);
+      };
+    } catch (err) {
+      reject(err);
+    }
   });
 }
 
@@ -274,12 +285,13 @@ export async function deleteStudent(studentId) {
 }
 
 // ─────────────────────────────────────────────
-// 2b. Teachers (localStorage)
+// 2b. Teachers (IndexedDB)
 // ─────────────────────────────────────────────
 export async function getTeachers() {
   try {
-    return JSON.parse(localStorage.getItem('teachers') || '[]');
+    return await txGetAll('teachers');
   } catch (e) {
+    console.error('Error fetching teachers from IndexedDB:', e);
     return [];
   }
 }
@@ -288,21 +300,12 @@ export async function saveTeacher(teacherData) {
   if (!teacherData.id) {
     teacherData.id = 'tch_' + generateUUID();
   }
-  const teachers = await getTeachers();
-  const idx = teachers.findIndex(t => t.id === teacherData.id);
-  if (idx !== -1) {
-    teachers[idx] = teacherData;
-  } else {
-    teachers.push(teacherData);
-  }
-  localStorage.setItem('teachers', JSON.stringify(teachers));
+  await txPut('teachers', teacherData);
   return teacherData;
 }
 
 export async function deleteTeacher(teacherId) {
-  let teachers = await getTeachers();
-  teachers = teachers.filter(t => t.id !== teacherId);
-  localStorage.setItem('teachers', JSON.stringify(teachers));
+  await txDelete('teachers', teacherId);
   
   // Clean up teacher attendance references
   try {
@@ -317,6 +320,24 @@ export async function deleteTeacher(teacherId) {
     console.error('Error cleaning teacher attendance refs:', e);
   }
   return true;
+}
+
+export async function migrateTeachersToIndexedDb() {
+  try {
+    const localTeachersStr = localStorage.getItem('teachers');
+    if (localTeachersStr) {
+      const localTeachers = JSON.parse(localTeachersStr);
+      if (Array.isArray(localTeachers) && localTeachers.length > 0) {
+        console.log('Migrating teachers from localStorage to IndexedDB...');
+        for (const teacher of localTeachers) {
+          await txPut('teachers', teacher);
+        }
+      }
+      localStorage.removeItem('teachers');
+    }
+  } catch (e) {
+    console.error('Error migrating teachers to IndexedDB:', e);
+  }
 }
 
 // ─────────────────────────────────────────────
