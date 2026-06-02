@@ -964,6 +964,8 @@ td input.cell-input:focus {
     flex-direction: column;
     background-color: var(--sidebar-bg);
     border-right: 1px solid var(--border-color);
+    will-change: left;
+    backface-visibility: hidden;
   }
   
   .sidebar.open {
@@ -1013,7 +1015,7 @@ td input.cell-input:focus {
   
   .main-content {
     margin-left: 0 !important;
-    padding: 84px 16px 24px 16px !important; /* Space for the top header */
+    padding: 80px 12px 20px 12px !important; /* Spacing optimized for mobile view */
   }
   
   .mobile-header {
@@ -1030,6 +1032,36 @@ td input.cell-input:focus {
     justify-content: space-between;
     padding: 0 16px;
     box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+  }
+
+  /* Optimized Grid Layouts for Mobile Screen sizes */
+  .dashboard-grid {
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 12px !important;
+    margin-bottom: 20px !important;
+  }
+  
+  .dashboard-actions {
+    grid-template-columns: 1fr !important;
+    gap: 16px !important;
+  }
+  
+  .student-grid {
+    grid-template-columns: 1fr !important;
+    gap: 12px !important;
+  }
+  
+  .panel {
+    padding: 20px !important; /* Save real estate on screens */
+  }
+  
+  .page-title {
+    font-size: 1.8rem !important;
+  }
+
+  /* Prevent iOS keyboard/viewport auto zoom-on-focus styling */
+  input, select, textarea {
+    font-size: 16px !important;
   }
 }
 
@@ -1175,6 +1207,8 @@ td input.cell-input:focus {
 /* Smooth Module Transitions */
 .module-section {
   animation: moduleFadeIn 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  will-change: transform, opacity;
+  backface-visibility: hidden;
 }
 
 @keyframes moduleFadeIn {
