@@ -28,6 +28,12 @@ function openDB() {
       return;
     }
 
+    let timeoutId = setTimeout(() => {
+      timeoutId = null;
+      console.warn('IndexedDB connection request timed out.');
+      reject(new Error('IndexedDB open connection timeout'));
+    }, 5000);
+
     try {
       const req = indexedDB.open(DB_NAME, DB_VERSION);
 
@@ -62,15 +68,37 @@ function openDB() {
       };
 
       req.onsuccess = (e) => {
+        if (!timeoutId) return; // already timed out
+        clearTimeout(timeoutId);
         _db = e.target.result;
+
+        // Handle database version changes (e.g. from another tab upgrading)
+        _db.onversionchange = () => {
+          _db.close();
+          _db = null;
+          console.warn('Database version changed in another context. Connection closed.');
+        };
+
         resolve(_db);
       };
 
+      req.onblocked = (e) => {
+        if (!timeoutId) return; // already timed out
+        clearTimeout(timeoutId);
+        console.warn('IndexedDB database upgrade blocked by another connection.', e);
+        reject(new Error('IndexedDB upgrade blocked'));
+      };
+
       req.onerror = (e) => {
+        if (!timeoutId) return; // already timed out
+        clearTimeout(timeoutId);
         console.error('IndexedDB open error:', e.target.error);
         reject(e.target.error);
       };
     } catch (err) {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
       reject(err);
     }
   });
