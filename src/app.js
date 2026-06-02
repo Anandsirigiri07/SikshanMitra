@@ -4123,7 +4123,7 @@ async function finishScan(dataUrl) {
 
     // Await real face comparison
     const similarity = await compareFaces(teacher.photo, dataUrl);
-    const passThreshold = 70.0;
+    const passThreshold = 58.0;
     const matchScore = similarity.toFixed(1);
 
     if (similarity >= passThreshold) {
@@ -4198,26 +4198,27 @@ async function compareFaces(photoDataUrl1, photoDataUrl2) {
           const gray1 = getGrayscaleData(ctx1, img1, size);
           const gray2 = getGrayscaleData(ctx2, img2, size);
           
-          let minMAE = 999;
+          let maxSimilarity = 0;
+          
           // Search with small shifts (dx, dy) to handle slight translations / framing changes
           for (let dy = -2; dy <= 2; dy++) {
             for (let dx = -2; dx <= 2; dx++) {
-              const mae = computeShiftedMAE(gray1, gray2, size, dx, dy);
-              if (mae < minMAE) {
-                minMAE = mae;
+              const pixelSim = computeEllipseCorrelation(gray1, gray2, size, dx, dy);
+              const gradSim = computeGradientSimilarity(gray1, gray2, size, dx, dy);
+              
+              // Combined score of pixel structural correlation and edge direction matching
+              const sim = 0.5 * pixelSim + 0.5 * gradSim;
+              if (sim > maxSimilarity) {
+                maxSimilarity = sim;
               }
             }
           }
           
-          // Scale MAE to a similarity score between 0 and 100
-          // For identical images, minMAE is 0 -> similarity is 100
-          // For different people, minMAE is typically 0.8 - 1.1 -> similarity is < 60
-          // Threshold of 70 represents a strong similarity match
-          const similarity = Math.max(0, 100 - (minMAE * 80));
-          resolve(similarity);
+          // Convert from [0, 1] range to percentage [0, 100]%
+          resolve(Math.max(0, maxSimilarity) * 100);
         } catch (e) {
           console.error("Error comparing face templates:", e);
-          resolve(50); // safe neutral fallback
+          resolve(0); // safe fallback
         }
       }
     };
@@ -4244,11 +4245,15 @@ function getGrayscaleData(ctx, img, size) {
   return gray;
 }
 
-function computeShiftedMAE(gray1, gray2, size, dx, dy) {
-  let diff = 0;
+function computeEllipseCorrelation(gray1, gray2, size, dx, dy) {
   let count = 0;
   
-  // Calculate means of the overlapping regions first
+  const cx = size / 2;
+  const cy = size / 2;
+  const rx = size * 0.28; // horizontal radius of face ellipse (~9 pixels)
+  const ry = size * 0.38; // vertical radius of face ellipse (~12 pixels)
+  
+  // Calculate means of the overlapping elliptical regions
   let sum1 = 0;
   let sum2 = 0;
   for (let y = 0; y < size; y++) {
@@ -4258,19 +4263,25 @@ function computeShiftedMAE(gray1, gray2, size, dx, dy) {
       const x2 = x + dx;
       if (x2 < 0 || x2 >= size) continue;
       
+      const dx_ellipse = (x - cx) / rx;
+      const dy_ellipse = (y - cy) / ry;
+      if (dx_ellipse * dx_ellipse + dy_ellipse * dy_ellipse > 1.0) continue;
+      
       sum1 += gray1[y * size + x];
       sum2 += gray2[y2 * size + x2];
       count++;
     }
   }
   
-  if (count === 0) return 2.0;
+  if (count === 0) return 0;
   const mean1 = sum1 / count;
   const mean2 = sum2 / count;
   
-  // Calculate standard deviations of the overlapping regions
+  // Calculate covariance and standard deviations
   let var1 = 0;
   let var2 = 0;
+  let covar = 0;
+  
   for (let y = 0; y < size; y++) {
     const y2 = y + dy;
     if (y2 < 0 || y2 >= size) continue;
@@ -4278,27 +4289,62 @@ function computeShiftedMAE(gray1, gray2, size, dx, dy) {
       const x2 = x + dx;
       if (x2 < 0 || x2 >= size) continue;
       
-      var1 += (gray1[y * size + x] - mean1) ** 2;
-      var2 += (gray2[y2 * size + x2] - mean2) ** 2;
-    }
-  }
-  
-  const std1 = Math.sqrt(var1 / count) || 1.0;
-  const std2 = Math.sqrt(var2 / count) || 1.0;
-  
-  // Compute normalized mean absolute error (MAE)
-  for (let y = 0; y < size; y++) {
-    const y2 = y + dy;
-    if (y2 < 0 || y2 >= size) continue;
-    for (let x = 0; x < size; x++) {
-      const x2 = x + dx;
-      if (x2 < 0 || x2 >= size) continue;
+      const dx_ellipse = (x - cx) / rx;
+      const dy_ellipse = (y - cy) / ry;
+      if (dx_ellipse * dx_ellipse + dy_ellipse * dy_ellipse > 1.0) continue;
       
-      const norm1 = (gray1[y * size + x] - mean1) / std1;
-      const norm2 = (gray2[y2 * size + x2] - mean2) / std2;
-      diff += Math.abs(norm1 - norm2);
+      const diff1 = gray1[y * size + x] - mean1;
+      const diff2 = gray2[y2 * size + x2] - mean2;
+      
+      var1 += diff1 * diff1;
+      var2 += diff2 * diff2;
+      covar += diff1 * diff2;
     }
   }
   
-  return diff / count;
+  const std1 = Math.sqrt(var1);
+  const std2 = Math.sqrt(var2);
+  
+  if (std1 === 0 || std2 === 0) return 0;
+  return covar / (std1 * std2);
+}
+
+function computeGradientSimilarity(gray1, gray2, size, dx, dy) {
+  let num = 0;
+  let den = 0;
+  
+  const cx = size / 2;
+  const cy = size / 2;
+  const rx = size * 0.28;
+  const ry = size * 0.38;
+  
+  for (let y = 1; y < size - 1; y++) {
+    const y2 = y + dy;
+    if (y2 < 1 || y2 >= size - 1) continue;
+    
+    for (let x = 1; x < size - 1; x++) {
+      const x2 = x + dx;
+      if (x2 < 1 || x2 >= size - 1) continue;
+      
+      const dx_ellipse = (x - cx) / rx;
+      const dy_ellipse = (y - cy) / ry;
+      if (dx_ellipse * dx_ellipse + dy_ellipse * dy_ellipse > 1.0) continue;
+      
+      // Simple central difference gradients
+      const dx1 = gray1[y * size + (x + 1)] - gray1[y * size + (x - 1)];
+      const dy1 = gray1[(y + 1) * size + x] - gray1[(y - 1) * size + x];
+      
+      const dx2 = gray2[y2 * size + (x2 + 1)] - gray2[y2 * size + (x2 - 1)];
+      const dy2 = gray2[(y2 + 1) * size + x2] - gray2[(y2 - 1) * size + x2];
+      
+      const mag1 = Math.sqrt(dx1 * dx1 + dy1 * dy1);
+      const mag2 = Math.sqrt(dx2 * dx2 + dy2 * dy2);
+      
+      num += (dx1 * dx2 + dy1 * dy2);
+      den += (mag1 * mag2);
+    }
+  }
+  
+  if (den === 0) return 0;
+  return num / den;
 }
