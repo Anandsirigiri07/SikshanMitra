@@ -930,7 +930,15 @@ function setupEventBindings() {
 
       let progress = 0;
       const interval = setInterval(() => {
-        progress += 2; // Increments to 100 over 2 seconds (50 iterations)
+        if (progress < 95) {
+          progress += 2;
+        } else if (progress < 99) {
+          progress += 1;
+        } else if (!detectionCompleted) {
+          progress = 99;
+        } else {
+          progress = 100;
+        }
         
         // Draw static face frame
         ctx.clearRect(0, 0, size, size);
@@ -939,6 +947,8 @@ function setupEventBindings() {
         if (landmarks) {
           drawBiometricOverlay(canvas, landmarks, progress);
           statusOverlay.innerText = 'Locking Biometrics...';
+        } else if (!detectionCompleted && progress === 99) {
+          statusOverlay.innerText = 'Finalizing biometric analysis...';
         } else if (detectionError) {
           statusOverlay.innerText = 'Analyzing face structure...';
         } else {
@@ -959,9 +969,10 @@ function setupEventBindings() {
             statusOverlay.innerText = 'Scan Failed';
             
             if (errorMsg) {
+              const prefix = state.scannerMode === 'register' ? 'Registration Failed' : 'Verification Failed';
               errorMsg.innerText = detectionError === 'Face not detected'
-                ? 'Verification Failed. Face not detected in frame. Please align your face in the center and try again.'
-                : 'Verification Failed. Error reading biometric landmarks.';
+                ? `${prefix}. Face not detected in frame. Please align your face in the center and try again.`
+                : `${prefix}. ${detectionError || 'Error reading biometric landmarks.'}`;
               errorMsg.classList.remove('hidden');
             }
             showToast('Biometric scanning failed. Please try again.', 'error');
@@ -4362,8 +4373,8 @@ async function loadFaceApiModels() {
   const statusOverlay = document.getElementById('scanner-status-overlay');
   if (statusOverlay) statusOverlay.innerText = 'Loading neural network models...';
   
-  // Use relative path to support subdirectories/subpaths correctly
-  const MODEL_URL = './models/';
+  // Use absolute root path for models to avoid path resolution errors under hashes/subroutes
+  const MODEL_URL = '/models/';
   
   // Implement a 15-second loading timeout to prevent UI freeze on slow connection
   const timeoutPromise = new Promise((_, reject) => 
