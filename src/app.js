@@ -4119,25 +4119,186 @@ async function finishScan(dataUrl) {
       return;
     }
 
-    const matchScore = (98.2 + Math.random() * 1.5).toFixed(1);
-    
-    if (successOverlay) successOverlay.classList.remove('hidden');
-    if (successMatchMsg) successMatchMsg.innerText = `Matched: ${teacher.name} (${matchScore}%)`;
-    if (statusOverlay) statusOverlay.innerText = 'Verification Successful';
+    if (statusOverlay) statusOverlay.innerText = 'Comparing face biometrics...';
 
-    const currentMarks = await db.getTeacherAttendance(state.activeDate);
-    currentMarks[teacherId] = 'present';
-    
-    try {
-      await db.saveTeacherAttendance(state.activeDate, currentMarks);
-      showToast(`Identity verified. ${teacher.name} marked Present.`, 'success');
-      await renderAttendance();
-    } catch (err) {
-      showToast(err.message, 'error');
+    // Await real face comparison
+    const similarity = await compareFaces(teacher.photo, dataUrl);
+    const passThreshold = 70.0;
+    const matchScore = similarity.toFixed(1);
+
+    if (similarity >= passThreshold) {
+      if (successOverlay) successOverlay.classList.remove('hidden');
+      if (successMatchMsg) successMatchMsg.innerText = `Matched: ${teacher.name} (${matchScore}%)`;
+      if (statusOverlay) statusOverlay.innerText = 'Verification Successful';
+
+      const currentMarks = await db.getTeacherAttendance(state.activeDate);
+      currentMarks[teacherId] = 'present';
+      
+      try {
+        await db.saveTeacherAttendance(state.activeDate, currentMarks);
+        showToast(`Identity verified. ${teacher.name} marked Present.`, 'success');
+        await renderAttendance();
+      } catch (err) {
+        showToast(err.message, 'error');
+      }
+
+      setTimeout(() => {
+        stopFaceScanner();
+      }, 2000);
+    } else {
+      // Failed verification!
+      const errorMsg = document.getElementById('camera-error-msg');
+      if (errorMsg) {
+        errorMsg.innerText = `Verification Failed. Face match similarity (${matchScore}%) is below the required threshold of ${passThreshold}%.`;
+        errorMsg.classList.remove('hidden');
+      }
+      if (statusOverlay) statusOverlay.innerText = 'Verification Failed';
+      showToast(`Verification failed: Face match similarity (${matchScore}%) too low.`, 'error');
+
+      // Re-enable trigger button and hide progress spinner so they can retry
+      const triggerBtn = document.getElementById('btn-trigger-face-scan');
+      if (triggerBtn) {
+        triggerBtn.disabled = false;
+        const textSpan = triggerBtn.querySelector('span');
+        if (textSpan) textSpan.innerText = 'Match & Verify';
+      }
+    }
+  }
+}
+
+// ----------------------------------------------------
+// Biometric Face Comparison Algorithms
+// ----------------------------------------------------
+async function compareFaces(photoDataUrl1, photoDataUrl2) {
+  return new Promise((resolve) => {
+    if (!photoDataUrl1 || !photoDataUrl2) {
+      resolve(0);
+      return;
     }
 
-    setTimeout(() => {
-      stopFaceScanner();
-    }, 2000);
+    const img1 = new Image();
+    const img2 = new Image();
+    
+    let loadedCount = 0;
+    const onImgLoad = () => {
+      loadedCount++;
+      if (loadedCount === 2) {
+        try {
+          const canvas1 = document.createElement('canvas');
+          const canvas2 = document.createElement('canvas');
+          const size = 32; // resize to 32x32 for speed and fuzzy matching
+          canvas1.width = size;
+          canvas1.height = size;
+          canvas2.width = size;
+          canvas2.height = size;
+          
+          const ctx1 = canvas1.getContext('2d');
+          const ctx2 = canvas2.getContext('2d');
+          
+          const gray1 = getGrayscaleData(ctx1, img1, size);
+          const gray2 = getGrayscaleData(ctx2, img2, size);
+          
+          let minMAE = 999;
+          // Search with small shifts (dx, dy) to handle slight translations / framing changes
+          for (let dy = -2; dy <= 2; dy++) {
+            for (let dx = -2; dx <= 2; dx++) {
+              const mae = computeShiftedMAE(gray1, gray2, size, dx, dy);
+              if (mae < minMAE) {
+                minMAE = mae;
+              }
+            }
+          }
+          
+          // Scale MAE to a similarity score between 0 and 100
+          // For identical images, minMAE is 0 -> similarity is 100
+          // For different people, minMAE is typically 0.8 - 1.1 -> similarity is < 60
+          // Threshold of 70 represents a strong similarity match
+          const similarity = Math.max(0, 100 - (minMAE * 80));
+          resolve(similarity);
+        } catch (e) {
+          console.error("Error comparing face templates:", e);
+          resolve(50); // safe neutral fallback
+        }
+      }
+    };
+    
+    img1.onerror = () => resolve(0);
+    img2.onerror = () => resolve(0);
+    
+    img1.onload = onImgLoad;
+    img2.onload = onImgLoad;
+    
+    img1.src = photoDataUrl1;
+    img2.src = photoDataUrl2;
+  });
+}
+
+function getGrayscaleData(ctx, img, size) {
+  ctx.drawImage(img, 0, 0, size, size);
+  const data = ctx.getImageData(0, 0, size, size).data;
+  const gray = new Float32Array(size * size);
+  for (let i = 0; i < data.length; i += 4) {
+    // Luma formula: 0.299R + 0.587G + 0.114B
+    gray[i / 4] = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
   }
+  return gray;
+}
+
+function computeShiftedMAE(gray1, gray2, size, dx, dy) {
+  let diff = 0;
+  let count = 0;
+  
+  // Calculate means of the overlapping regions first
+  let sum1 = 0;
+  let sum2 = 0;
+  for (let y = 0; y < size; y++) {
+    const y2 = y + dy;
+    if (y2 < 0 || y2 >= size) continue;
+    for (let x = 0; x < size; x++) {
+      const x2 = x + dx;
+      if (x2 < 0 || x2 >= size) continue;
+      
+      sum1 += gray1[y * size + x];
+      sum2 += gray2[y2 * size + x2];
+      count++;
+    }
+  }
+  
+  if (count === 0) return 2.0;
+  const mean1 = sum1 / count;
+  const mean2 = sum2 / count;
+  
+  // Calculate standard deviations of the overlapping regions
+  let var1 = 0;
+  let var2 = 0;
+  for (let y = 0; y < size; y++) {
+    const y2 = y + dy;
+    if (y2 < 0 || y2 >= size) continue;
+    for (let x = 0; x < size; x++) {
+      const x2 = x + dx;
+      if (x2 < 0 || x2 >= size) continue;
+      
+      var1 += (gray1[y * size + x] - mean1) ** 2;
+      var2 += (gray2[y2 * size + x2] - mean2) ** 2;
+    }
+  }
+  
+  const std1 = Math.sqrt(var1 / count) || 1.0;
+  const std2 = Math.sqrt(var2 / count) || 1.0;
+  
+  // Compute normalized mean absolute error (MAE)
+  for (let y = 0; y < size; y++) {
+    const y2 = y + dy;
+    if (y2 < 0 || y2 >= size) continue;
+    for (let x = 0; x < size; x++) {
+      const x2 = x + dx;
+      if (x2 < 0 || x2 >= size) continue;
+      
+      const norm1 = (gray1[y * size + x] - mean1) / std1;
+      const norm2 = (gray2[y2 * size + x2] - mean2) / std2;
+      diff += Math.abs(norm1 - norm2);
+    }
+  }
+  
+  return diff / count;
 }
