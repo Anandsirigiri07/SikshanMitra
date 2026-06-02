@@ -4254,15 +4254,30 @@ async function loadFaceApiModels() {
   const statusOverlay = document.getElementById('scanner-status-overlay');
   if (statusOverlay) statusOverlay.innerText = 'Loading neural network models...';
   
-  const MODEL_URL = '/models/';
+  // Use relative path to support subdirectories/subpaths correctly
+  const MODEL_URL = './models/';
   
-  // Load ssdMobilenetv1, faceLandmark68Net, and faceRecognitionNet
-  await faceapi.nets.ssdMobilenetv1.loadFromUri(MODEL_URL);
-  await faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL);
-  await faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL);
-  
-  modelsLoaded = true;
-  console.log('face-api.js neural network models loaded successfully.');
+  // Implement a 15-second loading timeout to prevent UI freeze on slow connection
+  const timeoutPromise = new Promise((_, reject) => 
+    setTimeout(() => reject(new Error('Model download timed out.')), 15000)
+  );
+
+  try {
+    await Promise.race([
+      Promise.all([
+        faceapi.nets.ssdMobilenetv1.loadFromUri(MODEL_URL),
+        faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL),
+        faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL)
+      ]),
+      timeoutPromise
+    ]);
+    
+    modelsLoaded = true;
+    console.log('face-api.js neural network models loaded successfully.');
+  } catch (err) {
+    console.error('Error loading face-api models:', err);
+    throw new Error('Failed to load neural network models. Check network connectivity or path settings.');
+  }
 }
 
 async function getDescriptorFromImage(photoUrlOrImgElement) {
