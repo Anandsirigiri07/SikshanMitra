@@ -859,11 +859,22 @@ function setupEventBindings() {
       const progressCircle = document.getElementById('progress-circle');
       const progressText = document.getElementById('progress-text');
       const statusOverlay = document.getElementById('scanner-status-overlay');
+      const scanLine = document.getElementById('scan-line');
       
       if (!video || !canvas) return;
 
       btnTriggerFaceScan.disabled = true;
-      statusOverlay.innerText = 'Analyzing face structure...';
+      const textSpan = btnTriggerFaceScan.querySelector('span');
+      if (textSpan) textSpan.innerText = 'Scanning...';
+      
+      // Hide camera error msg if displayed
+      const errorMsg = document.getElementById('camera-error-msg');
+      if (errorMsg) {
+        errorMsg.classList.add('hidden');
+        errorMsg.innerText = '';
+      }
+
+      statusOverlay.innerText = 'Freezing biometric profile...';
 
       const size = Math.min(video.videoWidth, video.videoHeight) || 300;
       canvas.width = size;
@@ -872,25 +883,106 @@ function setupEventBindings() {
       
       const sx = (video.videoWidth - size) / 2;
       const sy = (video.videoHeight - size) / 2;
-      ctx.drawImage(video, sx, sy, size, size, 0, 0, size, size);
       
-      const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+      // Capture static video frame to off-screen canvas
+      const offscreen = document.createElement('canvas');
+      offscreen.width = size;
+      offscreen.height = size;
+      const oCtx = offscreen.getContext('2d');
+      oCtx.drawImage(video, sx, sy, size, size, 0, 0, size, size);
+      
+      // Show canvas and pause/hide video
+      canvas.classList.remove('hidden');
+      video.classList.add('hidden');
+      video.pause();
+      if (scanLine) scanLine.classList.add('hidden');
 
       progressOverlay.classList.remove('hidden');
       
+      // Run face detection (landmarks & descriptors) in background
+      let landmarks = null;
+      let descriptor = null;
+      let detectionCompleted = false;
+      let detectionError = null;
+
+      async function runDetection() {
+        try {
+          await loadFaceApiModels();
+          const options = new faceapi.SsdMobilenetv1Options({ minConfidence: 0.4 });
+          const detection = await faceapi.detectSingleFace(offscreen, options)
+            .withFaceLandmarks()
+            .withFaceDescriptor();
+          if (detection) {
+            landmarks = detection.landmarks;
+            descriptor = detection.descriptor;
+          } else {
+            detectionError = 'Face not detected';
+          }
+        } catch (err) {
+          console.error('Biometric scan background detection error:', err);
+          detectionError = err.message;
+        } finally {
+          detectionCompleted = true;
+        }
+      }
+      
+      runDetection();
+
       let progress = 0;
       const interval = setInterval(() => {
-        progress += 5;
-        if (progress > 100) {
+        progress += 2; // Increments to 100 over 2 seconds (50 iterations)
+        
+        // Draw static face frame
+        ctx.clearRect(0, 0, size, size);
+        ctx.drawImage(offscreen, 0, 0);
+        
+        if (landmarks) {
+          drawBiometricOverlay(canvas, landmarks, progress);
+          statusOverlay.innerText = 'Locking Biometrics...';
+        } else if (detectionError) {
+          statusOverlay.innerText = 'Analyzing face structure...';
+        } else {
+          statusOverlay.innerText = 'Detecting facial geometry...';
+        }
+
+        if (progress >= 100) {
           clearInterval(interval);
-          finishScan(dataUrl);
+          
+          if (detectionError || !landmarks) {
+            // Restore camera visibility for retries
+            canvas.classList.add('hidden');
+            video.classList.remove('hidden');
+            video.play();
+            if (scanLine) scanLine.classList.remove('hidden');
+            progressOverlay.classList.add('hidden');
+            
+            statusOverlay.innerText = 'Scan Failed';
+            
+            if (errorMsg) {
+              errorMsg.innerText = detectionError === 'Face not detected'
+                ? 'Verification Failed. Face not detected in frame. Please align your face in the center and try again.'
+                : 'Verification Failed. Error reading biometric landmarks.';
+              errorMsg.classList.remove('hidden');
+            }
+            showToast('Biometric scanning failed. Please try again.', 'error');
+            
+            btnTriggerFaceScan.disabled = false;
+            if (textSpan) {
+              textSpan.innerText = state.scannerMode === 'register' ? 'Scan Face' : 'Match & Verify';
+            }
+            return;
+          }
+
+          // Scan succeeded
+          const dataUrl = offscreen.toDataURL('image/jpeg', 0.85);
+          finishScan(dataUrl, descriptor);
         } else {
           progressText.innerText = `${progress}%`;
           if (progressCircle) {
             progressCircle.setAttribute('stroke-dasharray', `${progress}, 100`);
           }
         }
-      }, 75);
+      }, 40); // 40ms * 50 = 2000ms
     });
   }
 
@@ -4062,6 +4154,8 @@ async function startFaceScanner(mode) {
 function stopFaceScanner() {
   const modal = document.getElementById('face-scanner-modal');
   const video = document.getElementById('camera-video');
+  const canvas = document.getElementById('camera-canvas');
+  const scanLine = document.getElementById('scan-line');
   
   if (state.activeStream) {
     state.activeStream.getTracks().forEach(track => track.stop());
@@ -4070,6 +4164,17 @@ function stopFaceScanner() {
   
   if (video) {
     video.srcObject = null;
+    video.classList.remove('hidden');
+  }
+
+  if (canvas) {
+    canvas.classList.add('hidden');
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+  }
+
+  if (scanLine) {
+    scanLine.classList.remove('hidden');
   }
   
   if (modal) {
@@ -4077,7 +4182,7 @@ function stopFaceScanner() {
   }
 }
 
-async function finishScan(dataUrl) {
+async function finishScan(dataUrl, precomputedDescriptor = null) {
   const progressOverlay = document.getElementById('scanner-progress-overlay');
   const successOverlay = document.getElementById('scanner-success-overlay');
   const successMatchMsg = document.getElementById('scanner-success-match-msg');
@@ -4095,14 +4200,17 @@ async function finishScan(dataUrl) {
 
     // Verify face is actually detected before allowing registration
     try {
-      await loadFaceApiModels();
-      const desc = await getDescriptorFromImage(dataUrl);
+      let desc = precomputedDescriptor;
+      if (!desc) {
+        await loadFaceApiModels();
+        desc = await getDescriptorFromImage(dataUrl);
+      }
       if (!desc) {
         // Face detection failed
         const errorMsg = document.getElementById('camera-error-msg');
         if (errorMsg) {
           errorMsg.innerText = 'Registration Failed. Face not detected in frame. Please align your face in the center and try again.';
-          errorMsg.classList.add('hidden');
+          errorMsg.classList.remove('hidden');
         }
         if (statusOverlay) statusOverlay.innerText = 'Face Not Detected';
         showToast('Face not detected. Registration blocked.', 'error');
@@ -4156,7 +4264,7 @@ async function finishScan(dataUrl) {
     try {
       await loadFaceApiModels();
       const desc1 = await getDescriptorFromImage(teacher.photo);
-      const desc2 = await getDescriptorFromImage(dataUrl);
+      const desc2 = precomputedDescriptor || await getDescriptorFromImage(dataUrl);
 
       if (!desc1) {
         const errorMsg = document.getElementById('camera-error-msg');
@@ -4199,7 +4307,7 @@ async function finishScan(dataUrl) {
       console.log('Euclidean distance between face descriptors:', distance);
       
       const similarity = Math.max(0, 1 - distance) * 100;
-      const passThreshold = 45.0; // Enforces Euclidean distance <= 0.55 (FaceID-grade unlock security)
+      const passThreshold = 40.0; // Enforces Euclidean distance <= 0.60 (standard face-api match threshold)
       const matchScore = similarity.toFixed(1);
 
       if (similarity >= passThreshold) {
@@ -4326,4 +4434,154 @@ async function compareFaces(photoDataUrl1, photoDataUrl2) {
     console.error("Error during neural network comparison:", err);
     return 0;
   }
+}
+
+// ----------------------------------------------------
+// Biometric Eye and Face Scan Visualization Overlays
+// ----------------------------------------------------
+function drawBiometricOverlay(canvas, landmarks, progress) {
+  const ctx = canvas.getContext('2d');
+  const size = canvas.width;
+  const pts = landmarks.positions; // Array of 68 { x, y } points
+
+  // 1. Draw neon-cyan wireframe mesh
+  ctx.strokeStyle = 'rgba(0, 243, 255, 0.3)';
+  ctx.lineWidth = 1;
+  
+  // Jawline (0-16)
+  drawPath(ctx, pts.slice(0, 17), false);
+  // Eyebrows (17-21, 22-26)
+  drawPath(ctx, pts.slice(17, 22), false);
+  drawPath(ctx, pts.slice(22, 27), false);
+  // Nose (27-30, 31-35)
+  drawPath(ctx, pts.slice(27, 31), false);
+  drawPath(ctx, pts.slice(31, 36), false);
+  // Eyes (36-41, 42-47)
+  drawPath(ctx, pts.slice(36, 42), true);
+  drawPath(ctx, pts.slice(42, 48), true);
+  // Mouth (48-59)
+  drawPath(ctx, pts.slice(48, 60), true);
+  
+  // Connect extra futuristic lines (e.g. eye corners to eyebrows/nose)
+  ctx.beginPath();
+  // Nose bridge to inner brows
+  ctx.moveTo(pts[27].x, pts[27].y); ctx.lineTo(pts[21].x, pts[21].y);
+  ctx.moveTo(pts[27].x, pts[27].y); ctx.lineTo(pts[22].x, pts[22].y);
+  // Nose tip to inner eye corners
+  ctx.moveTo(pts[30].x, pts[30].y); ctx.lineTo(pts[39].x, pts[39].y);
+  ctx.moveTo(pts[30].x, pts[30].y); ctx.lineTo(pts[42].x, pts[42].y);
+  // Outer eyes to jawline
+  ctx.moveTo(pts[36].x, pts[36].y); ctx.lineTo(pts[0].x, pts[0].y);
+  ctx.moveTo(pts[45].x, pts[45].y); ctx.lineTo(pts[16].x, pts[16].y);
+  ctx.stroke();
+
+  // 2. Draw Eye Reticles (Left eye indices 36-41, Right eye indices 42-47)
+  const leftEyePts = pts.slice(36, 42);
+  const leftCenter = getCenter(leftEyePts);
+  const leftRadius = getRadius(leftEyePts, leftCenter) * 2.2;
+
+  const rightEyePts = pts.slice(42, 48);
+  const rightCenter = getCenter(rightEyePts);
+  const rightRadius = getRadius(rightEyePts, rightCenter) * 2.2;
+
+  drawEyeReticle(ctx, leftCenter, leftRadius, progress);
+  drawEyeReticle(ctx, rightCenter, rightRadius, progress);
+
+  // 3. Draw horizontal sweeping laser line (Amber)
+  const laserY = (progress / 100) * size;
+  
+  // Laser Glow
+  const laserGrad = ctx.createLinearGradient(0, laserY - 15, 0, laserY + 15);
+  laserGrad.addColorStop(0, 'rgba(245, 166, 35, 0)');
+  laserGrad.addColorStop(0.5, 'rgba(245, 166, 35, 0.6)');
+  laserGrad.addColorStop(1, 'rgba(245, 166, 35, 0)');
+  
+  ctx.fillStyle = laserGrad;
+  ctx.fillRect(0, laserY - 15, size, 30);
+  
+  // Core laser line
+  ctx.strokeStyle = '#f5a623';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(0, laserY);
+  ctx.lineTo(size, laserY);
+  ctx.stroke();
+}
+
+function drawPath(ctx, points, closePath) {
+  if (!points || points.length === 0) return;
+  ctx.beginPath();
+  ctx.moveTo(points[0].x, points[0].y);
+  for (let i = 1; i < points.length; i++) {
+    ctx.lineTo(points[i].x, points[i].y);
+  }
+  if (closePath) ctx.closePath();
+  ctx.stroke();
+}
+
+function getCenter(points) {
+  let sumX = 0, sumY = 0;
+  points.forEach(p => {
+    sumX += p.x;
+    sumY += p.y;
+  });
+  return { x: sumX / points.length, y: sumY / points.length };
+}
+
+function getRadius(points, center) {
+  let maxDist = 0;
+  points.forEach(p => {
+    const dist = Math.hypot(p.x - center.x, p.y - center.y);
+    if (dist > maxDist) maxDist = dist;
+  });
+  return maxDist || 10;
+}
+
+function drawEyeReticle(ctx, center, radius, progress) {
+  // Pulse effect based on progress percentage
+  const pulse = radius * (1 + 0.1 * Math.sin(progress * 0.15));
+  
+  // Outer circle
+  ctx.strokeStyle = 'rgba(0, 243, 255, 0.7)';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.arc(center.x, center.y, pulse, 0, 2 * Math.PI);
+  ctx.stroke();
+
+  // Inner crosshair target center dot
+  ctx.fillStyle = 'rgba(0, 243, 255, 0.9)';
+  ctx.beginPath();
+  ctx.arc(center.x, center.y, 2, 0, 2 * Math.PI);
+  ctx.fill();
+
+  // Draw corner ticks / bracket indicators around the eye
+  const tickLen = pulse * 0.4;
+  ctx.beginPath();
+  // Top-Left corner
+  ctx.moveTo(center.x - pulse, center.y - pulse + tickLen);
+  ctx.lineTo(center.x - pulse, center.y - pulse);
+  ctx.lineTo(center.x - pulse + tickLen, center.y - pulse);
+  
+  // Top-Right corner
+  ctx.moveTo(center.x + pulse - tickLen, center.y - pulse);
+  ctx.lineTo(center.x + pulse, center.y - pulse);
+  ctx.lineTo(center.x + pulse, center.y - pulse + tickLen);
+
+  // Bottom-Left corner
+  ctx.moveTo(center.x - pulse, center.y + pulse - tickLen);
+  ctx.lineTo(center.x - pulse, center.y + pulse);
+  ctx.lineTo(center.x - pulse + tickLen, center.y + pulse);
+
+  // Bottom-Right corner
+  ctx.moveTo(center.x + pulse - tickLen, center.y + pulse);
+  ctx.lineTo(center.x + pulse, center.y + pulse);
+  ctx.lineTo(center.x + pulse, center.y + pulse - tickLen);
+  
+  ctx.stroke();
+  
+  // Draw subtle eye scanning label text
+  ctx.font = 'bold 8px monospace';
+  ctx.fillStyle = 'rgba(0, 243, 255, 0.85)';
+  ctx.textAlign = 'center';
+  ctx.fillText('LOCK ON', center.x, center.y - pulse - 5);
 }

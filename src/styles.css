@@ -1088,6 +1088,17 @@ td input.cell-input:focus {
   transform: scaleX(-1);
 }
 
+#camera-canvas {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform: scaleX(-1);
+  z-index: 5;
+}
+
 .scanner-guide-ring {
   position: absolute;
   inset: 12px;
@@ -1130,7 +1141,8 @@ td input.cell-input:focus {
 .scanner-progress-pane {
   position: absolute;
   inset: 0;
-  background: rgba(15, 27, 45, 0.9);
+  background: rgba(15, 27, 45, 0.45);
+  backdrop-filter: blur(1.5px);
   display: flex;
   flex-direction: column;
   align-items: center;
