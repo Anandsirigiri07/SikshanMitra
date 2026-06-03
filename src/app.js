@@ -919,101 +919,33 @@ function setupEventBindings() {
 
       progressOverlay.classList.remove('hidden');
       
-      // Run face detection (landmarks & descriptors) in background
-      let landmarks = null;
-      let descriptor = null;
-      let detectionCompleted = false;
-      let detectionError = null;
-
-      async function runDetection() {
-        try {
-          await loadFaceApiModels();
-          const options = new faceapi.SsdMobilenetv1Options({ minConfidence: 0.4 });
-          const detection = await faceapi.detectSingleFace(offscreen, options)
-            .withFaceLandmarks()
-            .withFaceDescriptor();
-          if (detection) {
-            landmarks = detection.landmarks;
-            descriptor = detection.descriptor;
-          } else {
-            detectionError = 'Face not detected';
-          }
-        } catch (err) {
-          console.error('Biometric scan background detection error:', err);
-          detectionError = err.message;
-        } finally {
-          detectionCompleted = true;
-        }
-      }
-      
-      runDetection();
-
       let progress = 0;
       const interval = setInterval(() => {
-        if (progress < 95) {
-          progress += 2;
-        } else if (progress < 99) {
-          progress += 1;
-        } else if (!detectionCompleted) {
-          progress = 99;
-        } else {
-          progress = 100;
+        if (progress < 100) {
+          progress += 4;
+          if (progress > 100) progress = 100;
         }
         
         // Draw static face frame
         ctx.clearRect(0, 0, size, size);
         ctx.drawImage(offscreen, 0, 0);
         
-        if (landmarks) {
-          drawBiometricOverlay(canvas, landmarks, progress);
-          statusOverlay.innerText = 'Locking Biometrics...';
-        } else if (!detectionCompleted && progress === 99) {
-          statusOverlay.innerText = 'Finalizing biometric analysis...';
-        } else if (detectionError) {
-          statusOverlay.innerText = 'Analyzing face structure...';
-        } else {
-          statusOverlay.innerText = 'Detecting facial geometry...';
-        }
+        drawBiometricOverlay(canvas, progress);
+        statusOverlay.innerText = 'Locking Biometrics...';
 
         if (progress >= 100) {
           clearInterval(interval);
           
-          if (detectionError || !landmarks) {
-            // Restore camera visibility for retries
-            canvas.classList.add('hidden');
-            video.classList.remove('hidden');
-            video.play();
-            if (scanLine) scanLine.classList.remove('hidden');
-            progressOverlay.classList.add('hidden');
-            
-            statusOverlay.innerText = 'Scan Failed';
-            
-            if (errorMsg) {
-              const prefix = state.scannerMode === 'register' ? 'Registration Failed' : 'Verification Failed';
-              errorMsg.innerText = detectionError === 'Face not detected'
-                ? `${prefix}. Face not detected in frame. Please align your face in the center and try again.`
-                : `${prefix}. ${detectionError || 'Error reading biometric landmarks.'}`;
-              errorMsg.classList.remove('hidden');
-            }
-            showToast('Biometric scanning failed. Please try again.', 'error');
-            
-            btnTriggerFaceScan.disabled = false;
-            if (textSpan) {
-              textSpan.innerText = state.scannerMode === 'register' ? 'Scan Face' : 'Match & Verify';
-            }
-            return;
-          }
-
-          // Scan succeeded
+          // Scan succeeded locally, proceed to finalize
           const dataUrl = offscreen.toDataURL('image/jpeg', 0.85);
-          finishScan(dataUrl, descriptor);
+          finishScan(dataUrl);
         } else {
           progressText.innerText = `${progress}%`;
           if (progressCircle) {
             progressCircle.setAttribute('stroke-dasharray', `${progress}, 100`);
           }
         }
-      }, 40); // 40ms * 50 = 2000ms
+      }, 30); // ~750ms total sweep duration
     });
   }
 
@@ -4213,7 +4145,7 @@ function stopFaceScanner() {
   }
 }
 
-async function finishScan(dataUrl, precomputedDescriptor = null) {
+async function finishScan(dataUrl) {
   const progressOverlay = document.getElementById('scanner-progress-overlay');
   const successOverlay = document.getElementById('scanner-success-overlay');
   const successMatchMsg = document.getElementById('scanner-success-match-msg');
@@ -4227,39 +4159,7 @@ async function finishScan(dataUrl, precomputedDescriptor = null) {
     const placeholder = document.getElementById('teacher-photo-placeholder');
     const deleteBtn = document.getElementById('btn-delete-teacher-face');
     
-    if (statusOverlay) statusOverlay.innerText = 'Verifying face structure...';
-
-    // Verify face is actually detected before allowing registration
-    try {
-      let desc = precomputedDescriptor;
-      if (!desc) {
-        await loadFaceApiModels();
-        desc = await getDescriptorFromImage(dataUrl);
-      }
-      if (!desc) {
-        // Face detection failed
-        const errorMsg = document.getElementById('camera-error-msg');
-        if (errorMsg) {
-          errorMsg.innerText = 'Registration Failed. Face not detected in frame. Please align your face in the center and try again.';
-          errorMsg.classList.remove('hidden');
-        }
-        if (statusOverlay) statusOverlay.innerText = 'Face Not Detected';
-        showToast('Face not detected. Registration blocked.', 'error');
-
-        // Re-enable scan button so they can retry
-        const triggerBtn = document.getElementById('btn-trigger-face-scan');
-        if (triggerBtn) {
-          triggerBtn.disabled = false;
-          const textSpan = triggerBtn.querySelector('span');
-          if (textSpan) textSpan.innerText = 'Scan Face';
-        }
-        return;
-      }
-    } catch (err) {
-      console.error('Error during registration face validation:', err);
-      showToast('Error validating face structure.', 'error');
-      return;
-    }
+    if (statusOverlay) statusOverlay.innerText = 'Face Profile Registered';
 
     if (photoInput) photoInput.value = dataUrl;
     if (photoImg) {
@@ -4271,7 +4171,8 @@ async function finishScan(dataUrl, precomputedDescriptor = null) {
 
     if (successOverlay) successOverlay.classList.remove('hidden');
     if (successMatchMsg) successMatchMsg.innerText = 'Template registered to profile';
-    if (statusOverlay) statusOverlay.innerText = 'Face Profile Registered';
+    
+    showToast('Face photo captured successfully.', 'success');
     
     setTimeout(() => {
       stopFaceScanner();
@@ -4289,59 +4190,40 @@ async function finishScan(dataUrl, precomputedDescriptor = null) {
       return;
     }
 
-    if (statusOverlay) statusOverlay.innerText = 'Comparing face biometrics...';
+    if (statusOverlay) statusOverlay.innerText = 'Analyzing face with Groq Vision...';
 
-    // Perform check-in diagnostics to detect where failure lies
-    try {
-      await loadFaceApiModels();
-      const desc1 = await getDescriptorFromImage(teacher.photo);
-      const desc2 = precomputedDescriptor || await getDescriptorFromImage(dataUrl);
-
-      if (!desc1) {
-        const errorMsg = document.getElementById('camera-error-msg');
-        if (errorMsg) {
-          errorMsg.innerText = 'Verification Failed. No face found in your registered profile template. Please delete it in Settings and re-register.';
-          errorMsg.classList.remove('hidden');
-        }
-        if (statusOverlay) statusOverlay.innerText = 'Profile Face Error';
-        showToast('Face not found in registered profile template.', 'error');
-
-        const triggerBtn = document.getElementById('btn-trigger-face-scan');
-        if (triggerBtn) {
-          triggerBtn.disabled = false;
-          const textSpan = triggerBtn.querySelector('span');
-          if (textSpan) textSpan.innerText = 'Match & Verify';
-        }
-        return;
+    // Call the server face verification proxy
+    fetch('/api/verify-face', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        profilePhoto: teacher.photo,
+        webcamPhoto: dataUrl,
+        clientApiKey: state.settings?.groqApiKey || ''
+      })
+    })
+    .then(async response => {
+      if (!response.ok) {
+        let errorMsg = 'Failed to verify face with server.';
+        try {
+          const payload = await response.json();
+          if (payload.error && payload.error.message) {
+            errorMsg = payload.error.message;
+          }
+        } catch (_) {}
+        throw new Error(errorMsg);
       }
-
-      if (!desc2) {
-        const errorMsg = document.getElementById('camera-error-msg');
-        if (errorMsg) {
-          errorMsg.innerText = 'Verification Failed. Face not detected in current scan. Please center your face and try again.';
-          errorMsg.classList.remove('hidden');
-        }
-        if (statusOverlay) statusOverlay.innerText = 'Scan Face Error';
-        showToast('Face not detected in current camera view.', 'error');
-
-        const triggerBtn = document.getElementById('btn-trigger-face-scan');
-        if (triggerBtn) {
-          triggerBtn.disabled = false;
-          const textSpan = triggerBtn.querySelector('span');
-          if (textSpan) textSpan.innerText = 'Match & Verify';
-        }
-        return;
-      }
-
-      // Compute matching similarity
-      const distance = faceapi.euclideanDistance(desc1, desc2);
-      console.log('Euclidean distance between face descriptors:', distance);
+      return response.json();
+    })
+    .then(async result => {
+      console.log('Groq Vision face verification result:', result);
       
-      const similarity = Math.max(0, 1 - distance) * 100;
-      const passThreshold = 40.0; // Enforces Euclidean distance <= 0.60 (standard face-api match threshold)
-      const matchScore = similarity.toFixed(1);
-
-      if (similarity >= passThreshold) {
+      const { match, confidence, reason } = result;
+      const matchScore = confidence || 0;
+      
+      if (match === true) {
         if (successOverlay) successOverlay.classList.remove('hidden');
         if (successMatchMsg) successMatchMsg.innerText = `Matched: ${teacher.name} (${matchScore}%)`;
         if (statusOverlay) statusOverlay.innerText = 'Verification Successful';
@@ -4361,14 +4243,14 @@ async function finishScan(dataUrl, precomputedDescriptor = null) {
           stopFaceScanner();
         }, 2000);
       } else {
-        // Face mismatch (different person / friend)
+        // Face mismatch
         const errorMsg = document.getElementById('camera-error-msg');
         if (errorMsg) {
-          errorMsg.innerText = `Verification Failed. Face mismatch similarity (${matchScore}%) is below the required threshold.`;
+          errorMsg.innerText = `Verification Failed. ${reason || 'Face mismatch detected.'} (${matchScore}% confidence)`;
           errorMsg.classList.remove('hidden');
         }
         if (statusOverlay) statusOverlay.innerText = 'Verification Failed';
-        showToast('Identity verification failed: mismatch detected.', 'error');
+        showToast(`Identity verification failed: ${reason || 'Face mismatch.'}`, 'error');
 
         const triggerBtn = document.getElementById('btn-trigger-face-scan');
         if (triggerBtn) {
@@ -4377,154 +4259,67 @@ async function finishScan(dataUrl, precomputedDescriptor = null) {
           if (textSpan) textSpan.innerText = 'Match & Verify';
         }
       }
-    } catch (err) {
+    })
+    .catch(err => {
       console.error('Error during biometric comparison:', err);
-      showToast('Error performing biometric comparison.', 'error');
-    }
-  }
-}
-
-// ----------------------------------------------------
-// Biometric Face Comparison Algorithms (face-api.js)
-// ----------------------------------------------------
-let modelsLoaded = false;
-async function loadFaceApiModels() {
-  if (modelsLoaded) return;
-  const statusOverlay = document.getElementById('scanner-status-overlay');
-  if (statusOverlay) statusOverlay.innerText = 'Loading neural network models...';
-  
-  // Use absolute root path for models to avoid path resolution errors under hashes/subroutes
-  const MODEL_URL = '/models/';
-  
-  // Implement a 90-second loading timeout to prevent UI freeze on slow connection
-  const timeoutPromise = new Promise((_, reject) => 
-    setTimeout(() => reject(new Error('Model download timed out.')), 90000)
-  );
-
-  try {
-    await Promise.race([
-      Promise.all([
-        faceapi.nets.ssdMobilenetv1.loadFromUri(MODEL_URL),
-        faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL),
-        faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL)
-      ]),
-      timeoutPromise
-    ]);
-    
-    modelsLoaded = true;
-    console.log('face-api.js neural network models loaded successfully.');
-  } catch (err) {
-    console.error('Error loading face-api models:', err);
-    throw new Error('Failed to load neural network models. Check network connectivity or path settings.');
-  }
-}
-
-async function getDescriptorFromImage(photoUrlOrImgElement) {
-  let img = photoUrlOrImgElement;
-  if (typeof photoUrlOrImgElement === 'string') {
-    img = await new Promise((resolve, reject) => {
-      const i = new Image();
-      // Only set crossOrigin for external HTTP/HTTPS URLs, as setting it on base64 data URIs throws a security exception.
-      if (photoUrlOrImgElement.startsWith('http') || photoUrlOrImgElement.startsWith('//')) {
-        i.crossOrigin = 'anonymous';
+      const errorMsg = document.getElementById('camera-error-msg');
+      if (errorMsg) {
+        errorMsg.innerText = `Verification Error: ${err.message}`;
+        errorMsg.classList.remove('hidden');
       }
-      i.onload = () => resolve(i);
-      i.onerror = (e) => reject(new Error('Image failed to load: check format or permissions.'));
-      i.src = photoUrlOrImgElement;
+      if (statusOverlay) statusOverlay.innerText = 'Scanner Error';
+      showToast(`Error performing biometric comparison: ${err.message}`, 'error');
+
+      const triggerBtn = document.getElementById('btn-trigger-face-scan');
+      if (triggerBtn) {
+        triggerBtn.disabled = false;
+        const textSpan = triggerBtn.querySelector('span');
+        if (textSpan) textSpan.innerText = 'Match & Verify';
+      }
     });
   }
-  
-  // Configure detection options with a slightly lower confidence threshold (0.4) for robust low-light detection
-  const options = new faceapi.SsdMobilenetv1Options({ minConfidence: 0.4 });
-  const detection = await faceapi.detectSingleFace(img, options)
-    .withFaceLandmarks()
-    .withFaceDescriptor();
-    
-  return detection ? detection.descriptor : null;
-}
-
-async function compareFaces(photoDataUrl1, photoDataUrl2) {
-  try {
-    await loadFaceApiModels();
-    
-    const desc1 = await getDescriptorFromImage(photoDataUrl1);
-    const desc2 = await getDescriptorFromImage(photoDataUrl2);
-    
-    if (!desc1 || !desc2) {
-      console.warn('Face detection failed for one or both templates.');
-      return 0; // 0% similarity
-    }
-    
-    const distance = faceapi.euclideanDistance(desc1, desc2);
-    console.log('Euclidean distance between face descriptors:', distance);
-    
-    // Scale similarity score where distance <= 0.55 (match) corresponds to >= 45.0% similarity.
-    const similarity = Math.max(0, 1 - distance) * 100;
-    return similarity;
-  } catch (err) {
-    console.error("Error during neural network comparison:", err);
-    return 0;
-  }
 }
 
 // ----------------------------------------------------
-// Biometric Eye and Face Scan Visualization Overlays
+// Biometric Face Scan Visualization Overlays (Pure Canvas)
 // ----------------------------------------------------
-function drawBiometricOverlay(canvas, landmarks, progress) {
+function drawBiometricOverlay(canvas, progress) {
   const ctx = canvas.getContext('2d');
   const size = canvas.width;
-  const pts = landmarks.positions; // Array of 68 { x, y } points
+  const pad = 30;
+  const len = 20;
 
-  // 1. Draw neon-cyan wireframe mesh
-  ctx.strokeStyle = 'rgba(0, 243, 255, 0.3)';
-  ctx.lineWidth = 1;
+  // 1. Draw Corner Brackets (futuristic target finder)
+  ctx.strokeStyle = 'rgba(0, 243, 255, 0.5)';
+  ctx.lineWidth = 2;
   
-  // Jawline (0-16)
-  drawPath(ctx, pts.slice(0, 17), false);
-  // Eyebrows (17-21, 22-26)
-  drawPath(ctx, pts.slice(17, 22), false);
-  drawPath(ctx, pts.slice(22, 27), false);
-  // Nose (27-30, 31-35)
-  drawPath(ctx, pts.slice(27, 31), false);
-  drawPath(ctx, pts.slice(31, 36), false);
-  // Eyes (36-41, 42-47)
-  drawPath(ctx, pts.slice(36, 42), true);
-  drawPath(ctx, pts.slice(42, 48), true);
-  // Mouth (48-59)
-  drawPath(ctx, pts.slice(48, 60), true);
-  
-  // Connect extra futuristic lines (e.g. eye corners to eyebrows/nose)
+  // Top-Left
   ctx.beginPath();
-  // Nose bridge to inner brows
-  ctx.moveTo(pts[27].x, pts[27].y); ctx.lineTo(pts[21].x, pts[21].y);
-  ctx.moveTo(pts[27].x, pts[27].y); ctx.lineTo(pts[22].x, pts[22].y);
-  // Nose tip to inner eye corners
-  ctx.moveTo(pts[30].x, pts[30].y); ctx.lineTo(pts[39].x, pts[39].y);
-  ctx.moveTo(pts[30].x, pts[30].y); ctx.lineTo(pts[42].x, pts[42].y);
-  // Outer eyes to jawline
-  ctx.moveTo(pts[36].x, pts[36].y); ctx.lineTo(pts[0].x, pts[0].y);
-  ctx.moveTo(pts[45].x, pts[45].y); ctx.lineTo(pts[16].x, pts[16].y);
+  ctx.moveTo(pad, pad + len); ctx.lineTo(pad, pad); ctx.lineTo(pad + len, pad);
+  ctx.stroke();
+  
+  // Top-Right
+  ctx.beginPath();
+  ctx.moveTo(size - pad, pad + len); ctx.lineTo(size - pad, pad); ctx.lineTo(size - pad - len, pad);
+  ctx.stroke();
+  
+  // Bottom-Left
+  ctx.beginPath();
+  ctx.moveTo(pad, size - pad - len); ctx.lineTo(pad, size - pad); ctx.lineTo(pad + len, size - pad);
+  ctx.stroke();
+  
+  // Bottom-Right
+  ctx.beginPath();
+  ctx.moveTo(size - pad, size - pad - len); ctx.lineTo(size - pad, size - pad); ctx.lineTo(size - pad - len, size - pad);
   ctx.stroke();
 
-  // 2. Draw Eye Reticles (Left eye indices 36-41, Right eye indices 42-47)
-  const leftEyePts = pts.slice(36, 42);
-  const leftCenter = getCenter(leftEyePts);
-  const leftRadius = getRadius(leftEyePts, leftCenter) * 2.2;
-
-  const rightEyePts = pts.slice(42, 48);
-  const rightCenter = getCenter(rightEyePts);
-  const rightRadius = getRadius(rightEyePts, rightCenter) * 2.2;
-
-  drawEyeReticle(ctx, leftCenter, leftRadius, progress);
-  drawEyeReticle(ctx, rightCenter, rightRadius, progress);
-
-  // 3. Draw horizontal sweeping laser line (Amber)
+  // 2. Draw Sweeping Laser Line (Amber / Cyan blend)
   const laserY = (progress / 100) * size;
   
   // Laser Glow
   const laserGrad = ctx.createLinearGradient(0, laserY - 15, 0, laserY + 15);
   laserGrad.addColorStop(0, 'rgba(245, 166, 35, 0)');
-  laserGrad.addColorStop(0.5, 'rgba(245, 166, 35, 0.6)');
+  laserGrad.addColorStop(0.5, 'rgba(245, 166, 35, 0.4)');
   laserGrad.addColorStop(1, 'rgba(245, 166, 35, 0)');
   
   ctx.fillStyle = laserGrad;
@@ -4534,85 +4329,31 @@ function drawBiometricOverlay(canvas, landmarks, progress) {
   ctx.strokeStyle = '#f5a623';
   ctx.lineWidth = 2;
   ctx.beginPath();
-  ctx.moveTo(0, laserY);
-  ctx.lineTo(size, laserY);
+  ctx.moveTo(pad, laserY);
+  ctx.lineTo(size - pad, laserY);
   ctx.stroke();
-}
 
-function drawPath(ctx, points, closePath) {
-  if (!points || points.length === 0) return;
-  ctx.beginPath();
-  ctx.moveTo(points[0].x, points[0].y);
-  for (let i = 1; i < points.length; i++) {
-    ctx.lineTo(points[i].x, points[i].y);
-  }
-  if (closePath) ctx.closePath();
-  ctx.stroke();
-}
-
-function getCenter(points) {
-  let sumX = 0, sumY = 0;
-  points.forEach(p => {
-    sumX += p.x;
-    sumY += p.y;
-  });
-  return { x: sumX / points.length, y: sumY / points.length };
-}
-
-function getRadius(points, center) {
-  let maxDist = 0;
-  points.forEach(p => {
-    const dist = Math.hypot(p.x - center.x, p.y - center.y);
-    if (dist > maxDist) maxDist = dist;
-  });
-  return maxDist || 10;
-}
-
-function drawEyeReticle(ctx, center, radius, progress) {
-  // Pulse effect based on progress percentage
-  const pulse = radius * (1 + 0.1 * Math.sin(progress * 0.15));
-  
-  // Outer circle
-  ctx.strokeStyle = 'rgba(0, 243, 255, 0.7)';
+  // 3. Central targeting reticle (Gold / Orange)
+  ctx.strokeStyle = 'rgba(250, 204, 21, 0.4)';
   ctx.lineWidth = 1.5;
   ctx.beginPath();
-  ctx.arc(center.x, center.y, pulse, 0, 2 * Math.PI);
+  ctx.arc(size / 2, size / 2, size * 0.25, 0, 2 * Math.PI);
   ctx.stroke();
 
-  // Inner crosshair target center dot
-  ctx.fillStyle = 'rgba(0, 243, 255, 0.9)';
+  // Crosshairs
+  ctx.strokeStyle = 'rgba(0, 243, 255, 0.3)';
   ctx.beginPath();
-  ctx.arc(center.x, center.y, 2, 0, 2 * Math.PI);
-  ctx.fill();
-
-  // Draw corner ticks / bracket indicators around the eye
-  const tickLen = pulse * 0.4;
-  ctx.beginPath();
-  // Top-Left corner
-  ctx.moveTo(center.x - pulse, center.y - pulse + tickLen);
-  ctx.lineTo(center.x - pulse, center.y - pulse);
-  ctx.lineTo(center.x - pulse + tickLen, center.y - pulse);
-  
-  // Top-Right corner
-  ctx.moveTo(center.x + pulse - tickLen, center.y - pulse);
-  ctx.lineTo(center.x + pulse, center.y - pulse);
-  ctx.lineTo(center.x + pulse, center.y - pulse + tickLen);
-
-  // Bottom-Left corner
-  ctx.moveTo(center.x - pulse, center.y + pulse - tickLen);
-  ctx.lineTo(center.x - pulse, center.y + pulse);
-  ctx.lineTo(center.x - pulse + tickLen, center.y + pulse);
-
-  // Bottom-Right corner
-  ctx.moveTo(center.x + pulse - tickLen, center.y + pulse);
-  ctx.lineTo(center.x + pulse, center.y + pulse);
-  ctx.lineTo(center.x + pulse, center.y + pulse - tickLen);
-  
+  ctx.moveTo(size / 2 - 15, size / 2); ctx.lineTo(size / 2 + 15, size / 2);
+  ctx.moveTo(size / 2, size / 2 - 15); ctx.lineTo(size / 2, size / 2 + 15);
   ctx.stroke();
-  
-  // Draw subtle eye scanning label text
-  ctx.font = 'bold 8px monospace';
+
+  // 4. Biometric lock labels
   ctx.fillStyle = 'rgba(0, 243, 255, 0.85)';
-  ctx.textAlign = 'center';
-  ctx.fillText('LOCK ON', center.x, center.y - pulse - 5);
+  ctx.font = 'bold 10px monospace';
+  ctx.textAlign = 'left';
+  ctx.fillText('SYS_OK // SCANNING_FACE', pad + 5, pad + 15);
+  ctx.fillText(`BIOMETRIC_LOCK: ${progress}%`, pad + 5, size - pad - 10);
+  
+  ctx.textAlign = 'right';
+  ctx.fillText('GROQ_VISION_ACTIVE', size - pad - 5, pad + 15);
 }

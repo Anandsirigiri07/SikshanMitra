@@ -3,10 +3,9 @@
   "rewrites": [
     { "source": "/api/(.*)", "destination": "/api/$1" },
     { "source": "/models/(.*)", "destination": "/models/$1" },
-    { "source": "/face-api.js", "destination": "/face-api.js" },
     { "source": "/assets/(.*)", "destination": "/assets/$1" },
     { "source": "/manifest.json", "destination": "/manifest.json" },
     { "source": "/sw.js", "destination": "/sw.js" },
-    { "source": "/((?!api|models|assets|face-api\\.js|sw\\.js|manifest\\.json|icon-).*|$)", "destination": "/index.html" }
+    { "source": "/((?!api|models|assets|sw\\.js|manifest\\.json|icon-).*|$)", "destination": "/index.html" }
   ]
 }

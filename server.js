@@ -163,6 +163,122 @@ app.post('/api/groq', async (req, res) => {
   }
 });
 
+// API Endpoint to compare two faces using Groq Llama 3.2 Vision API
+app.post('/api/verify-face', async (req, res) => {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 35000);
+
+  try {
+    const { profilePhoto, webcamPhoto, clientApiKey } = req.body;
+
+    if (!profilePhoto || !webcamPhoto) {
+      clearTimeout(timeoutId);
+      return res.status(400).json({ error: { message: 'Both profilePhoto and webcamPhoto are required.' } });
+    }
+
+    // Use client-provided key if available, otherwise fall back to server key
+    let apiKey = (clientApiKey && clientApiKey.trim() !== '' && clientApiKey.trim() !== 'MY_GROQ_API_KEY') 
+      ? clientApiKey.trim() 
+      : (process.env.GROQ_API_KEY ? process.env.GROQ_API_KEY.trim() : '');
+
+    // Strip surrounding quotes if present
+    if (apiKey.startsWith('"') && apiKey.endsWith('"')) {
+      apiKey = apiKey.slice(1, -1);
+    }
+    if (apiKey.startsWith("'") && apiKey.endsWith("'")) {
+      apiKey = apiKey.slice(1, -1);
+    }
+
+    if (!apiKey || apiKey.trim() === '' || apiKey === 'MY_GROQ_API_KEY') {
+      clearTimeout(timeoutId);
+      return res.status(400).json({
+        error: {
+          message: 'Groq API Key is blank. Please configure the GROQ_API_KEY environment variable or a local .env file on the server.'
+        }
+      });
+    }
+
+    const url = 'https://api.groq.com/openai/v1/chat/completions';
+
+    const payload = {
+      model: 'llama-3.2-11b-vision-preview',
+      messages: [
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'text',
+              text: 'Compare the biometric face in Image 1 (registered profile photo) with the face in Image 2 (recent webcam capture). Determine if they represent the SAME teacher. Keep in mind lighting, camera angle, or glasses differences. Return a JSON object with: 1) "match" (boolean), 2) "confidence" (number 0-100), and 3) "reason" (brief explanation). Example: {"match": true, "confidence": 95, "reason": "The facial structure, eyes, and nose match perfectly."}'
+            },
+            {
+              type: 'image_url',
+              image_url: {
+                url: profilePhoto
+              }
+            },
+            {
+              type: 'image_url',
+              image_url: {
+                url: webcamPhoto
+              }
+            }
+          ]
+        }
+      ],
+      response_format: {
+        type: 'json_object'
+      },
+      temperature: 0.1
+    };
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`
+      },
+      body: JSON.stringify(payload),
+      signal: controller.signal
+    });
+
+    clearTimeout(timeoutId);
+
+    if (response.status === 429) {
+      return res.status(429).json({ error: "Rate limit exceeded", status: 429, retryAfter: 60 });
+    }
+
+    if (!response.ok) {
+      let errMsg = `Server returned status ${response.status}`;
+      try {
+        const errPayload = await response.json();
+        if (errPayload.error && errPayload.error.message) {
+          errMsg = errPayload.error.message;
+        }
+      } catch (_) {}
+      return res.status(response.status).json({ error: { message: errMsg } });
+    }
+
+    const result = await response.json();
+    
+    try {
+      const content = result.choices[0].message.content;
+      const parsed = JSON.parse(content);
+      res.json(parsed);
+    } catch (parseErr) {
+      console.error('Error parsing response content from Groq (local):', result, parseErr);
+      res.status(500).json({
+        error: { message: 'Failed to parse JSON response from Groq Vision API.' },
+        raw: result
+      });
+    }
+  } catch (err) {
+    clearTimeout(timeoutId);
+    console.error('[API Proxy Error (Groq Verify Face)]:', err);
+    res.status(500).json({ error: { message: err.message } });
+  }
+});
+
+
 
 const KV_URL = 'https://jsonbin-zeta.vercel.app/api/bins/ObbyLGlpHZ';
 const TEACHERS_FILE = path.join(__dirname, 'data', 'teachers.json');

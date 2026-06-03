@@ -1,9 +1,8 @@
-const CACHE_NAME = 'sikshanmitra-cache-v6';
+const CACHE_NAME = 'sikshanmitra-cache-v7';
 const ASSETS_TO_CACHE = [
   '/',
   '/index.html',
-  '/manifest.json',
-  '/face-api.js'
+  '/manifest.json'
 ];
 
 
