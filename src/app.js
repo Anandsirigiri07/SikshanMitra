@@ -5,6 +5,26 @@ import * as db from './db.js';
 import * as ai from './ai.js';
 import { TRANSLATIONS } from './translations.js';
 
+// Intercept fetch calls for model weights and manifests to bust browser and CDN caches
+const originalFetch = window.fetch;
+window.fetch = function (input, init) {
+  let url = typeof input === 'string' ? input : input.url;
+  if (url && url.includes('/models/')) {
+    if (!init) init = {};
+    init.cache = 'no-store';
+    
+    // Append a unique timestamp query parameter to bust browser cache
+    const separator = url.includes('?') ? '&' : '?';
+    const newUrl = `${url}${separator}cb=${Date.now()}`;
+    if (typeof input === 'string') {
+      input = newUrl;
+    } else {
+      input = new Request(newUrl, input);
+    }
+  }
+  return originalFetch.call(this, input, init);
+};
+
 // ----------------------------------------------------
 // Global State & Session Configurations
 // ----------------------------------------------------
@@ -4376,9 +4396,9 @@ async function loadFaceApiModels() {
   // Use absolute root path for models to avoid path resolution errors under hashes/subroutes
   const MODEL_URL = '/models/';
   
-  // Implement a 15-second loading timeout to prevent UI freeze on slow connection
+  // Implement a 90-second loading timeout to prevent UI freeze on slow connection
   const timeoutPromise = new Promise((_, reject) => 
-    setTimeout(() => reject(new Error('Model download timed out.')), 15000)
+    setTimeout(() => reject(new Error('Model download timed out.')), 90000)
   );
 
   try {
