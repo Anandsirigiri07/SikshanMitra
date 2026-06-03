@@ -321,12 +321,18 @@ export async function getTeachers() {
       const res = await fetch('/api/teachers');
       if (res.ok) {
         const backendTeachers = await res.json();
+        
+        // Filter out non-teacher metadata objects (like { test: true }) from the list
+        const validTeachers = Array.isArray(backendTeachers) 
+          ? backendTeachers.filter(t => t && t.id && t.name) 
+          : [];
+
         // Update local IndexedDB cache
         await txClear('teachers');
-        for (const teacher of backendTeachers) {
+        for (const teacher of validTeachers) {
           await txPut('teachers', teacher);
         }
-        return backendTeachers;
+        return validTeachers;
       }
     } catch (e) {
       console.warn('Failed to fetch teachers from backend, falling back to IndexedDB cache:', e);
@@ -345,21 +351,33 @@ export async function saveTeacher(teacherData) {
   if (!teacherData.id) {
     teacherData.id = 'tch_' + generateUUID();
   }
-  // Save locally in IndexedDB
-  await txPut('teachers', teacherData);
-
-  // Sync to backend if online
+  
+  // Try syncing to backend first if online, to prevent saving locally if the backend rejects it (e.g. payload too large)
   if (typeof window !== 'undefined' && navigator.onLine) {
     try {
-      await fetch('/api/teachers', {
+      const res = await fetch('/api/teachers', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(teacherData)
       });
+      if (!res.ok) {
+        let errMsg = `Server sync failed with status ${res.status}`;
+        try {
+          const errPayload = await res.json();
+          if (errPayload.error && errPayload.error.message) {
+            errMsg = errPayload.error.message;
+          }
+        } catch (_) {}
+        throw new Error(errMsg);
+      }
     } catch (e) {
-      console.warn('Failed to sync saved teacher to backend:', e);
+      console.error('Failed to sync saved teacher to backend:', e);
+      throw e; // Bubble error up to prevent silent data loss/UI mismatch
     }
   }
+
+  // Save locally in IndexedDB only if server sync succeeds or client is offline
+  await txPut('teachers', teacherData);
   return teacherData;
 }
 

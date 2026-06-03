@@ -15,14 +15,13 @@ async function getBackendTeachers() {
 }
 
 async function saveBackendTeachers(teachers) {
-  try {
-    await fetch(KV_URL, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(teachers)
-    });
-  } catch (err) {
-    console.error('KV Write Error:', err);
+  const res = await fetch(KV_URL, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(teachers)
+  });
+  if (!res.ok) {
+    throw new Error(`Failed to update JSONBin store: ${res.statusText}`);
   }
 }
 

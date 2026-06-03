@@ -13,7 +13,8 @@ const PORT = process.env.PORT || 3001;
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-app.use(express.json());
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
 // API Endpoint to proxy Gemini requests securely
 app.post('/api/gemini', async (req, res) => {
@@ -315,14 +316,13 @@ async function getBackendTeachers() {
 
 async function saveBackendTeachers(teachers) {
   if (process.env.VERCEL) {
-    try {
-      await fetch(KV_URL, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(teachers)
-      });
-    } catch (err) {
-      console.error('KV Write Error:', err);
+    const res = await fetch(KV_URL, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(teachers)
+    });
+    if (!res.ok) {
+      throw new Error(`Failed to update JSONBin store: ${res.statusText}`);
     }
   } else {
     fs.writeFileSync(TEACHERS_FILE, JSON.stringify(teachers, null, 2), 'utf8');
