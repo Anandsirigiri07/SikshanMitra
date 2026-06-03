@@ -1,5 +1,5 @@
 // Vercel Serverless Function: CRUD for teacher profiles
-const KV_URL = 'https://kvdb.io/A84uKjDk4p1Fw2H3yR7qS9/teachers';
+const KV_URL = 'https://jsonbin-zeta.vercel.app/api/bins/ObbyLGlpHZ';
 
 async function getBackendTeachers() {
   try {
@@ -17,7 +17,7 @@ async function getBackendTeachers() {
 async function saveBackendTeachers(teachers) {
   try {
     await fetch(KV_URL, {
-      method: 'POST',
+      method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(teachers)
     });
