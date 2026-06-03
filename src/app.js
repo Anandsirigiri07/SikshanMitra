@@ -937,7 +937,14 @@ function setupEventBindings() {
           clearInterval(interval);
           
           // Scan succeeded locally, proceed to finalize
-          const dataUrl = offscreen.toDataURL('image/jpeg', 0.85);
+          // Downsample the high-res capture to 320x320 JPEG @ 75% quality for storage & transmission efficiency
+          const exportCanvas = document.createElement('canvas');
+          exportCanvas.width = 320;
+          exportCanvas.height = 320;
+          const exportCtx = exportCanvas.getContext('2d');
+          exportCtx.drawImage(offscreen, 0, 0, size, size, 0, 0, 320, 320);
+          
+          const dataUrl = exportCanvas.toDataURL('image/jpeg', 0.75);
           finishScan(dataUrl);
         } else {
           progressText.innerText = `${progress}%`;
@@ -1962,9 +1969,11 @@ async function renderDashboard() {
   if (absentBadgeValue) absentBadgeValue.innerText = absentCount;
 
   // Gradebooks columns quantity for this section
+  const gradeDataList = await Promise.all(
+    state.settings.subjects.map(sub => db.getGradesForSubject(sub, state.activeSectionId))
+  );
   let listedAssignmentsCount = 0;
-  for (const sub of state.settings.subjects) {
-    const gradeData = await db.getGradesForSubject(sub, state.activeSectionId);
+  for (const gradeData of gradeDataList) {
     listedAssignmentsCount += gradeData.assignments.length;
   }
   const gradesCountBadge = document.getElementById('dash-pending-grades');
@@ -2019,6 +2028,7 @@ function renderStudents() {
     return;
   }
 
+  const fragment = document.createDocumentFragment();
   sectionStudents.forEach(student => {
     const card = document.createElement('div');
     card.className = 'card';
@@ -2050,8 +2060,9 @@ function renderStudents() {
         <button class="btn btn-danger btn-small delete-student-btn" data-id="${student.id}" style="padding: 4px 10px;">Remove</button>
       </div>
     `;
-    container.appendChild(card);
+    fragment.appendChild(card);
   });
+  container.appendChild(fragment);
 
   // Attach actions listeners inside cards
   document.querySelectorAll('.edit-student-btn').forEach(btn => {
@@ -2116,6 +2127,7 @@ function renderTeachers() {
     return;
   }
 
+  const fragment = document.createDocumentFragment();
   state.teachers.forEach(teacher => {
     const card = document.createElement('div');
     card.className = 'card';
@@ -2156,8 +2168,9 @@ function renderTeachers() {
         <button class="btn btn-danger btn-small delete-teacher-btn" data-id="${teacher.id}" style="padding: 4px 10px;">Remove</button>
       </div>
     `;
-    container.appendChild(card);
+    fragment.appendChild(card);
   });
+  container.appendChild(fragment);
 
   // Attach actions listeners inside cards
   document.querySelectorAll('.edit-teacher-btn').forEach(btn => {
@@ -2245,6 +2258,7 @@ async function renderAttendance() {
     const marksMap = await db.getTeacherAttendance(state.activeDate);
     let presentC = 0, absentC = 0, lateC = 0;
 
+    const fragment = document.createDocumentFragment();
     state.teachers.forEach(teacher => {
       const status = marksMap[teacher.id] || '';
       if (status === 'present') presentC++;
@@ -2264,8 +2278,9 @@ async function renderAttendance() {
           <button class="btn-toggle toggle-late ${status === 'late' ? 'active-late' : ''}" data-id="${teacher.id}">Late</button>
         </div>
       `;
-      container.appendChild(item);
+      fragment.appendChild(item);
     });
+    container.appendChild(fragment);
 
     // Render stats badges
     document.getElementById('att-stats-present').innerText = presentC;
@@ -2303,6 +2318,7 @@ async function renderAttendance() {
 
     let presentC = 0, absentC = 0, lateC = 0;
 
+    const fragment = document.createDocumentFragment();
     sectionStudents.forEach(student => {
       // defaults to empty string if un-marked
       const status = marksMap[student.id] || '';
@@ -2325,8 +2341,9 @@ async function renderAttendance() {
           <button class="btn-toggle toggle-late ${status === 'late' ? 'active-late' : ''}" data-id="${student.id}">Late</button>
         </div>
       `;
-      container.appendChild(item);
+      fragment.appendChild(item);
     });
+    container.appendChild(fragment);
 
     // Render stats badges
     document.getElementById('att-stats-present').innerText = presentC;
@@ -2403,6 +2420,7 @@ async function renderAttendanceHistory() {
       return;
     }
 
+    const fragment = document.createDocumentFragment();
     history.forEach(record => {
       const dateObj = new Date(record.date + 'T00:00:00');
       const formattedDate = dateObj.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
@@ -2438,8 +2456,9 @@ async function renderAttendanceHistory() {
           <button class="btn btn-danger btn-small delete-history-btn" data-date="${record.date}">Delete</button>
         </div>
       `;
-      container.appendChild(card);
+      fragment.appendChild(card);
     });
+    container.appendChild(fragment);
 
     // Event handlers
     container.querySelectorAll('.view-history-btn').forEach(btn => {
@@ -2480,6 +2499,7 @@ async function renderAttendanceHistory() {
       return;
     }
 
+    const fragment = document.createDocumentFragment();
     sectionHistory.forEach(record => {
       const dateObj = new Date(record.date + 'T00:00:00');
       const formattedDate = dateObj.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
@@ -2516,8 +2536,9 @@ async function renderAttendanceHistory() {
           <button class="btn btn-danger btn-small delete-history-btn" data-date="${record.date}">Delete</button>
         </div>
       `;
-      container.appendChild(card);
+      fragment.appendChild(card);
     });
+    container.appendChild(fragment);
 
     // Event handlers
     container.querySelectorAll('.view-history-btn').forEach(btn => {
@@ -2634,7 +2655,7 @@ async function renderGrades() {
   });
 
   // Render Table Rows per student dynamically
-  tableBody.innerHTML = '';
+  let bodyHtml = '';
   sectionStudents.forEach(student => {
     const studentScoresMap = gradebook.scores[student.id] || {};
     
@@ -2672,8 +2693,9 @@ async function renderGrades() {
       </td>
     </tr>`;
 
-    tableBody.innerHTML += rowMarkup;
+    bodyHtml += rowMarkup;
   });
+  tableBody.innerHTML = bodyHtml;
 
   // Attach live spreadsheet input change listener
   document.querySelectorAll('.inline-score-input').forEach(input => {
@@ -2801,6 +2823,7 @@ async function renderLessonsSchedules() {
     return;
   }
 
+  const fragment = document.createDocumentFragment();
   allLessons.forEach(plan => {
     const formattedDate = plan.date 
       ? new Date(plan.date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
@@ -2836,8 +2859,9 @@ async function renderLessonsSchedules() {
         <button class="btn btn-danger btn-small delete-plan-btn" data-id="${plan.id}" data-pending="${plan.isPending || false}" data-retry="${plan.isRetry || false}" data-queue-id="${plan.queueId || ''}" style="padding:3px 8px;">Purge</button>
       </div>
     `;
-    container.appendChild(card);
+    fragment.appendChild(card);
   });
+  container.appendChild(fragment);
 
   // Folder click edit bindings
   container.querySelectorAll('.load-plan-btn').forEach(btn => {
@@ -2919,15 +2943,16 @@ async function renderIncidents() {
 
   const sectionStudents = getStudentsBySection(state.activeSectionId);
   const sectionStudentIds = new Set(sectionStudents.map(s => s.id));
-
   // 1. Populate log student select dropdown
   studentSelect.innerHTML = '<option value="">-- Select Student Involved --</option>';
+  const selectFragment = document.createDocumentFragment();
   sectionStudents.forEach(s => {
     const opt = document.createElement('option');
     opt.value = s.id;
     opt.innerText = s.name;
-    studentSelect.appendChild(opt);
+    selectFragment.appendChild(opt);
   });
+  studentSelect.appendChild(selectFragment);
 
   // Today date defaults for logging
   document.getElementById('incident-date').value = new Date().toISOString().split('T')[0];
@@ -2948,6 +2973,7 @@ async function renderIncidents() {
     return;
   }
 
+  const listFragment = document.createDocumentFragment();
   filteredIncidents.forEach(incident => {
     const studName = sectionStudents.find(s => s.id === incident.studentId)?.name || 'De-registered Student';
     const formDate = incident.date 
@@ -2974,7 +3000,7 @@ async function renderIncidents() {
         <strong style="color:var(--text-primary); display:block; font-size:0.75rem; text-transform:uppercase; margin-bottom:2px;">Action Taken:</strong>
         ${incident.action}
       </div>
-
+ 
       <div class="student-card-actions" style="margin-top:14px; padding-top:10px;">
         <button class="btn btn-secondary btn-small transmit-incident-btn" data-id="${incident.id}">
           <i data-lucide="share" style="width:12px; height:12px;"></i> Send to Principal
@@ -2982,8 +3008,9 @@ async function renderIncidents() {
         <button class="btn btn-danger btn-small delete-incident-btn" data-id="${incident.id}">Remove</button>
       </div>
     `;
-    feedList.appendChild(card);
+    listFragment.appendChild(card);
   });
+  feedList.appendChild(listFragment);
 
   // Attach Incident Card Buttons Listeners
   feedList.querySelectorAll('.transmit-incident-btn').forEach(btn => {
@@ -3037,12 +3064,14 @@ async function renderParentMessages() {
 
   const sectionStudents = getStudentsBySection(state.activeSectionId);
   select.innerHTML = '<option value="">-- Choose Student Roster Profile --</option>';
+  const fragment = document.createDocumentFragment();
   sectionStudents.forEach(student => {
     const opt = document.createElement('option');
     opt.value = student.id;
     opt.innerText = student.name;
-    select.appendChild(opt);
+    fragment.appendChild(opt);
   });
+  select.appendChild(fragment);
 
   // Attach change listener to update drafts list for selected student
   select.removeEventListener('change', handleMessageStudentChange);
@@ -3068,12 +3097,14 @@ async function renderProgressReports() {
 
   const sectionStudents = getStudentsBySection(state.activeSectionId);
   select.innerHTML = '<option value="">-- Select Student Target Profile --</option>';
+  const fragment = document.createDocumentFragment();
   sectionStudents.forEach(student => {
     const opt = document.createElement('option');
     opt.value = student.id;
     opt.innerText = student.name;
-    select.appendChild(opt);
+    fragment.appendChild(opt);
   });
+  select.appendChild(fragment);
 
   // Attach change listener to update progress reports and reports drafts list
   select.removeEventListener('change', handleReportStudentChange);
@@ -3232,6 +3263,7 @@ function renderSectionsList(containerId, editBtnClass, deleteBtnClass) {
   if (!container) return;
 
   container.innerHTML = '';
+  const fragment = document.createDocumentFragment();
   state.sections.forEach(sec => {
     const tag = document.createElement('div');
     tag.className = 'tag';
@@ -3245,8 +3277,9 @@ function renderSectionsList(containerId, editBtnClass, deleteBtnClass) {
       </button>
       <button class="${deleteBtnClass} tag-remove" data-id="${sec.id}" title="Delete Section" style="background:none; border:none; cursor:pointer; padding:0 2px; font-weight:bold;">&times;</button>
     `;
-    container.appendChild(tag);
+    fragment.appendChild(tag);
   });
+  container.appendChild(fragment);
 
   // Rename Section trigger
   container.querySelectorAll(`.${editBtnClass}`).forEach(btn => {
@@ -4068,12 +4101,14 @@ async function startFaceScanner(mode) {
         return;
       }
       
+      const fragment = document.createDocumentFragment();
       registeredTeachers.forEach(teacher => {
         const opt = document.createElement('option');
         opt.value = teacher.id;
         opt.innerText = `${teacher.name} (${teacher.code})`;
-        teacherSelect.appendChild(opt);
+        fragment.appendChild(opt);
       });
+      teacherSelect.appendChild(fragment);
     }
     
     const titleEl = document.getElementById('face-scanner-title');

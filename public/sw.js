@@ -1,8 +1,13 @@
-const CACHE_NAME = 'sikshanmitra-cache-v7';
+const CACHE_NAME = 'sikshanmitra-cache-v8';
 const ASSETS_TO_CACHE = [
   '/',
   '/index.html',
-  '/manifest.json'
+  '/manifest.json',
+  '/src/app.js',
+  '/src/styles.css',
+  '/src/translations.js',
+  '/src/db.js',
+  '/src/ai.js'
 ];
 
 
