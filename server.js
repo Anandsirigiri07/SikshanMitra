@@ -202,7 +202,7 @@ app.post('/api/verify-face', async (req, res) => {
     const url = 'https://api.groq.com/openai/v1/chat/completions';
 
     const payload = {
-      model: 'llama-3.2-11b-vision-preview',
+      model: 'meta-llama/llama-4-scout-17b-16e-instruct',
       messages: [
         {
           role: 'user',

@@ -48,9 +48,9 @@ export default async function handler(req, res) {
 
     const url = 'https://api.groq.com/openai/v1/chat/completions';
 
-    // Construct the payload for Llama 3.2 Vision model
+    // Construct the payload for active Llama 4 Scout Vision model
     const payload = {
-      model: 'llama-3.2-11b-vision-preview',
+      model: 'meta-llama/llama-4-scout-17b-16e-instruct',
       messages: [
         {
           role: 'user',
