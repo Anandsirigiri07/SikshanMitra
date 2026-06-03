@@ -2,6 +2,7 @@ import express from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
+import fs from 'fs';
 
 // Load environment variables from .env or .env.local
 dotenv.config();
@@ -159,6 +160,100 @@ app.post('/api/groq', async (req, res) => {
     clearTimeout(timeoutId);
     console.error('[API Proxy Error (Groq)]:', err);
     res.status(500).json({ error: { message: err.message } });
+  }
+});
+
+
+const KV_URL = 'https://kvdb.io/A84uKjDk4p1Fw2H3yR7qS9/teachers';
+const TEACHERS_FILE = path.join(__dirname, 'data', 'teachers.json');
+
+// Ensure data folder exists locally
+if (!fs.existsSync(path.dirname(TEACHERS_FILE))) {
+  fs.mkdirSync(path.dirname(TEACHERS_FILE), { recursive: true });
+}
+if (!fs.existsSync(TEACHERS_FILE)) {
+  fs.writeFileSync(TEACHERS_FILE, '[]', 'utf8');
+}
+
+async function getBackendTeachers() {
+  if (process.env.VERCEL) {
+    try {
+      const res = await fetch(KV_URL);
+      if (res.ok) {
+        const text = await res.text();
+        return text ? JSON.parse(text) : [];
+      }
+    } catch (err) {
+      console.error('KV Read Error:', err);
+    }
+    return [];
+  } else {
+    try {
+      const data = fs.readFileSync(TEACHERS_FILE, 'utf8');
+      return JSON.parse(data);
+    } catch (err) {
+      return [];
+    }
+  }
+}
+
+async function saveBackendTeachers(teachers) {
+  if (process.env.VERCEL) {
+    try {
+      await fetch(KV_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(teachers)
+      });
+    } catch (err) {
+      console.error('KV Write Error:', err);
+    }
+  } else {
+    fs.writeFileSync(TEACHERS_FILE, JSON.stringify(teachers, null, 2), 'utf8');
+  }
+}
+
+// Get teacher profiles list
+app.get('/api/teachers', async (req, res) => {
+  try {
+    const teachers = await getBackendTeachers();
+    res.json(teachers);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Save or update a teacher profile
+app.post('/api/teachers', async (req, res) => {
+  try {
+    const teacher = req.body;
+    const teachers = await getBackendTeachers();
+    const idx = teachers.findIndex(t => t.id === teacher.id);
+    if (idx !== -1) {
+      teachers[idx] = teacher;
+    } else {
+      teachers.push(teacher);
+    }
+    await saveBackendTeachers(teachers);
+    res.json(teacher);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Delete a teacher profile
+app.delete('/api/teachers/:id?', async (req, res) => {
+  try {
+    const id = req.params.id || req.query.id;
+    if (!id) {
+      return res.status(400).json({ error: 'Missing teacher ID' });
+    }
+    let teachers = await getBackendTeachers();
+    teachers = teachers.filter(t => t.id !== id);
+    await saveBackendTeachers(teachers);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 

@@ -313,9 +313,26 @@ export async function deleteStudent(studentId) {
 }
 
 // ─────────────────────────────────────────────
-// 2b. Teachers (IndexedDB)
+// 2b. Teachers (IndexedDB with Backend Sync)
 // ─────────────────────────────────────────────
 export async function getTeachers() {
+  if (typeof window !== 'undefined' && navigator.onLine) {
+    try {
+      const res = await fetch('/api/teachers');
+      if (res.ok) {
+        const backendTeachers = await res.json();
+        // Update local IndexedDB cache
+        await txClear('teachers');
+        for (const teacher of backendTeachers) {
+          await txPut('teachers', teacher);
+        }
+        return backendTeachers;
+      }
+    } catch (e) {
+      console.warn('Failed to fetch teachers from backend, falling back to IndexedDB cache:', e);
+    }
+  }
+
   try {
     return await txGetAll('teachers');
   } catch (e) {
@@ -328,11 +345,26 @@ export async function saveTeacher(teacherData) {
   if (!teacherData.id) {
     teacherData.id = 'tch_' + generateUUID();
   }
+  // Save locally in IndexedDB
   await txPut('teachers', teacherData);
+
+  // Sync to backend if online
+  if (typeof window !== 'undefined' && navigator.onLine) {
+    try {
+      await fetch('/api/teachers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(teacherData)
+      });
+    } catch (e) {
+      console.warn('Failed to sync saved teacher to backend:', e);
+    }
+  }
   return teacherData;
 }
 
 export async function deleteTeacher(teacherId) {
+  // Delete locally
   await txDelete('teachers', teacherId);
   
   // Clean up teacher attendance references
@@ -346,6 +378,17 @@ export async function deleteTeacher(teacherId) {
     localStorage.setItem('teacher_attendance', JSON.stringify(attendance));
   } catch (e) {
     console.error('Error cleaning teacher attendance refs:', e);
+  }
+
+  // Delete from backend if online
+  if (typeof window !== 'undefined' && navigator.onLine) {
+    try {
+      await fetch(`/api/teachers?id=${teacherId}`, {
+        method: 'DELETE'
+      });
+    } catch (e) {
+      console.warn('Failed to sync teacher deletion to backend:', e);
+    }
   }
   return true;
 }
