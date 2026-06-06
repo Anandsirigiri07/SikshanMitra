@@ -1,17 +1,13 @@
 // Vercel Serverless Function: CRUD for teacher profiles
-const KV_URL = 'https://jsonbin-zeta.vercel.app/api/bins/ObbyLGlpHZ';
+const KV_URL = 'https://extendsclass.com/api/json-storage/bin/fdcbadb';
 
 async function getBackendTeachers() {
-  try {
-    const res = await fetch(KV_URL);
-    if (res.ok) {
-      const text = await res.text();
-      return text ? JSON.parse(text) : [];
-    }
-  } catch (err) {
-    console.error('KV Read Error:', err);
+  const res = await fetch(KV_URL);
+  if (!res.ok) {
+    throw new Error(`Failed to read from JSON store: ${res.statusText}`);
   }
-  return [];
+  const text = await res.text();
+  return text ? JSON.parse(text) : [];
 }
 
 async function saveBackendTeachers(teachers) {
@@ -21,7 +17,7 @@ async function saveBackendTeachers(teachers) {
     body: JSON.stringify(teachers)
   });
   if (!res.ok) {
-    throw new Error(`Failed to update JSONBin store: ${res.statusText}`);
+    throw new Error(`Failed to update JSON store: ${res.statusText}`);
   }
 }
 

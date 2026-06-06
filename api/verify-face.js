@@ -53,11 +53,24 @@ export default async function handler(req, res) {
       model: 'meta-llama/llama-4-scout-17b-16e-instruct',
       messages: [
         {
+          role: 'system',
+          content: 'You are an advanced biometric security verification system. Your sole task is to strictly compare the face in Image 1 (registered profile photo) with the face in Image 2 (recent webcam capture) and determine if they belong to the EXACT SAME individual. To prevent unauthorized access or false matches (e.g. from friends, family, or look-alikes), you must perform a highly critical, fine-grained anatomical assessment of facial features. If there is ANY structural difference, mismatch, or doubt, you must return "match": false. Do not be fooled by similar hairstyles, general demographic traits, skin tones, or facial hair.'
+        },
+        {
           role: 'user',
           content: [
             {
               type: 'text',
-              text: 'You are an advanced biometric security system. Perform a highly critical, strict verification comparing the face in Image 1 (registered profile photo) with the face in Image 2 (recent webcam capture) to see if they represent the EXACT SAME person. To prevent unauthorized access or false matches (e.g. from friends, family, or look-alikes): 1) Carefully analyze detailed anatomical landmarks: eye spacing, eyebrow shape/thickness, nose bridge and nostril structure, jawline shape, cheekbones, lips, ear placement, and facial hairline. 2) Do NOT be fooled by general demographic similarities, skin tone, gender, or similar haircuts. Look closely at structural variations. 3) Be highly critical: if there are noticeable differences or any uncertainty, you must report a mismatch ("match": false) with a lower confidence score. 4) Account for differences in lighting, camera angle, and glasses, but do not let them excuse structural discrepancies in facial bone structure. Return a JSON object with: 1) "match" (boolean), 2) "confidence" (number 0-100), and 3) "reason" (brief explanation detailing matching or differing features). Example: {"match": false, "confidence": 20, "reason": "While demographics match, Image 2 has a significantly wider jawline and different nostril structure compared to Image 1."}'
+              text: 'Perform a detailed biometric comparison between Image 1 and Image 2. You MUST return a JSON object containing the following keys in this exact order to force step-by-step structural analysis before making a match decision:\n' +
+                    '1. "feature_comparison": {\n' +
+                    '     "eye_spacing_and_shape": "Detailed analysis of eye distance, tilt, and shape.",\n' +
+                    '     "nose_bridge_and_nostrils": "Detailed analysis of bridge width, nostril flare, and nose tip shape.",\n' +
+                    '     "jawline_and_chin_shape": "Detailed comparison of jaw angles, chin width, and overall face shape.",\n' +
+                    '     "eyebrows_and_hairline": "Comparison of eyebrow thickness, arch shape, and forehead hairline."\n' +
+                    '   },\n' +
+                    '2. "match": boolean (true only if all anatomical structures are a near-perfect match; false if there are distinct discrepancies or if you have any doubt),\n' +
+                    '3. "confidence": number (0-100 representing certainty of match/mismatch),\n' +
+                    '4. "reason": string (brief overall summary of the verdict)'
             },
             {
               type: 'image_url',
